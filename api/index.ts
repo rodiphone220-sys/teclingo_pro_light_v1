@@ -59,7 +59,7 @@ export default async function handler(req: any, res: any) {
         });
       }
       messages.push({ role: "user", content: message });
-      const result = await groq.chat.completions.create({ model: "llama-3.3-70b-versatile", messages });
+      const result = await groq.chat.completions.create({ model: "llama-3.3-70b-versatile", messages: messages as any });
       const content = result.choices[0]?.message?.content || "Lo siento, no pude procesar.";
       return res.status(200).json({ content, sources: [] });
     } catch (error: any) {
@@ -76,7 +76,7 @@ export default async function handler(req: any, res: any) {
         ? `Analyze this English text for advanced style. Provide: 1. Quality score (0-100). 2. CEFR level (A1-C2). 3. Advanced style suggestion. Text: "${text}"`
         : `Analyze this English text. Provide: 1. Quality score (0-100). 2. CEFR level (A1-C2). 3. Brief style suggestion. Text: "${text}"`;
       const result = await groq.chat.completions.create({
-        model: "llama3-70b-8192",
+        model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: `You are an English grammar analyzer. Always respond with valid JSON: { "score": number (0-100), "cefr": string (A1/A2/B1/B2/C1/C2), "suggestion": string }. Output ONLY the JSON.` },
           { role: "user", content: prompt }
@@ -104,7 +104,7 @@ export default async function handler(req: any, res: any) {
     try {
       const prompt = `Evaluate the translation. Spanish: "${spanish}". Student: "${studentEnglish}". Reference: "${targetEnglish}"`;
       const result = await groq.chat.completions.create({
-        model: "llama3-70b-8192",
+        model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: `You are an evaluator. Respond with JSON: { "score": number (0-100), "details": string }. Only JSON.` },
           { role: "user", content: prompt }
