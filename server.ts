@@ -324,7 +324,7 @@ app.post("/api/grammar/verify", async (req, res) => {
   }
 });
 
-// Google TTS gratuito — sin API key, sin config, funciona en Vercel
+// Google Translate TTS gratuito — sin API key, sin dependencias, funciona en Vercel
 app.post("/api/tts", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "Text is required" });
