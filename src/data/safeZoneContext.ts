@@ -86,6 +86,8 @@ export interface ChatMessage {
   translation?: string;
   timestamp: string;
   quickResponses?: string[];
+  isMilestone?: boolean;
+  milestoneType?: 'basic' | 'casual' | 'native';
 }
 
 export const INITIAL_CHAT_MESSAGES: ChatMessage[] = [

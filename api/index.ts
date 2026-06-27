@@ -38,23 +38,11 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.url === "/api/tutor") {
-    const { message, history, systemPrompt, currentSpeed, conversationMode, temperature, maxTokens } = data;
+    const { message, history, systemPrompt, temperature, maxTokens } = data;
     if (!message) return res.status(400).json({ error: "Message is required" });
     try {
-      const mode = conversationMode || 'basic';
-      let minWords = 0, maxWords = 0;
-      if (mode === 'native') { minWords = 15; maxWords = 25; }
-      else if (mode === 'casual') { minWords = 7; maxWords = 10; }
-      else {
-        const speed = parseFloat(currentSpeed) || 1.0;
-        if (speed <= 0.60) { minWords = 1; maxWords = 3; }
-        else if (speed <= 0.75) { minWords = 3; maxWords = 5; }
-        else if (speed <= 0.88) { minWords = 5; maxWords = 10; }
-        else { minWords = 10; maxWords = 15; }
-      }
-      const finalSystemPrompt = `CRITICAL: Your response MUST be between ${minWords} and ${maxWords} words. Count your words. DO NOT exceed ${maxWords} words. DO NOT write fewer than ${minWords} words. This is mandatory.`;
       const messages: any[] = [
-        { role: "system", content: finalSystemPrompt || systemPrompt || "You are TECLINGO, an English tutor." }
+        { role: "system", content: systemPrompt || "You are TECLINGO, an English tutor." }
       ];
       if (Array.isArray(history)) {
         history.forEach((h: any) => {

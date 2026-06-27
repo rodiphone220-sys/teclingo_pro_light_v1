@@ -38,45 +38,17 @@ app.get("/api/health", (req, res) => {
 });
 
 app.post("/api/tutor", async (req, res) => {
-  const { message, history, systemPrompt, currentSpeed, conversationMode, hobby, channel, temperature, maxTokens } = req.body;
-  console.log(`[ALERTA NATIVA] Modo: ${conversationMode} | Velocidad: ${currentSpeed}`);
-
-  // Si llega undefined o vacío, fuérzalo a 'basic'
-  const mode = conversationMode || 'basic';
+  const { message, history, systemPrompt, currentSpeed, temperature, maxTokens } = req.body;
 
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
   }
 
   try {
-    let speedLabel = '';
-
-    let finalSystemPrompt = '';
-    if (mode === 'native') {
-      speedLabel = 'Native';
-      finalSystemPrompt = "You are SafePal in NATIVE MODE. Speak fluently, naturally and complexly. You MUST write BETWEEN 15 AND 25 WORDS TOTAL. Do not write short fragments.";
-    } else if (mode === 'casual') {
-      speedLabel = 'Casual';
-      finalSystemPrompt = "You are SafePal in CASUAL BRIDGE MODE. Speak friendly. You MUST write BETWEEN 7 AND 10 WORDS TOTAL.";
-    } else {
-      let minWords = 0, maxWords = 0;
-      const speed = parseFloat(currentSpeed) || 1.0;
-      if (speed <= 0.60) {
-        minWords = 1; maxWords = 3; speedLabel = '0.60x';
-      } else if (speed <= 0.75) {
-        minWords = 3; maxWords = 5; speedLabel = '0.75x';
-      } else if (speed <= 0.88) {
-        minWords = 5; maxWords = 10; speedLabel = '0.88x';
-      } else {
-        minWords = 10; maxWords = 15; speedLabel = '1.00x';
-      }
-      finalSystemPrompt = `You are SafePal in BASIC MODE. Keep it short based on speed: between ${minWords} and ${maxWords} words.`;
-    }
-
     const messages: any[] = [
       {
         role: "system",
-        content: finalSystemPrompt || systemPrompt || `Eres TECLINGO, un tutor pedagógico de inglés experto y compasivo para nuestra plataforma de aprendizaje de idiomas.
+        content: systemPrompt || `Eres TECLINGO, un tutor pedagógico de inglés experto y compasivo para nuestra plataforma de aprendizaje de idiomas.
 Tu conocimiento debe centrarse EXCLUSIVAMENTE En lo académico, alineado rigurosamente con el Marco Común Europeo de Referencia para las lenguas (MCER / CEFR), desde niveles A1 hasta C2.
 Tus respuestas deben ser claras, detalladas, profesionales y con una estructura muy pedagógica.
 

@@ -28,7 +28,14 @@ import {
   SAFEZONE_MOCK_DATA, 
   ChatMessage
 } from '../data/safeZoneContext';
-import { useAiToolsConfig, JSON_RESPONSE_SUFFIX } from '../components/AdminCoreDashboard';
+import { useAiToolsConfig } from '../components/AdminCoreDashboard';
+import {
+  JSON_RESPONSE_SUFFIX,
+  MCER_BASE,
+  MCER_PROMPTS,
+  LANG_LOCK,
+  type McerLevel,
+} from '../config/aiConfig';
 
 const VELOCITY_STEPS = [
   { value: '0.60', label: '0.60x (Búnker Profundo)', speed: 0.60, desc: 'Ultralento, ideal para asimilar fonemas paso a paso.' },
@@ -130,8 +137,14 @@ export function SafeZoneModule() {
     return localStorage.getItem('safezone_playback_rate') || '1.00';
   });
 
-  // Conversation Mode: 'basic' (cockpit word limits), 'casual' (5-10 word bridge), 'native' (full freedom)
+  // Conversation Mode: 'basic' (SAFE PACE → A1-A2), 'casual' (CASUAL BRIDGE → B1-B2), 'native' (NATIVE MODE → C1-C2)
   const [conversationMode, setConversationMode] = useState<'basic' | 'casual' | 'native'>('basic');
+
+  const MODE_TO_MCER: Record<'basic' | 'casual' | 'native', McerLevel> = {
+    basic: 'A1-A2',
+    casual: 'B1-B2',
+    native: 'C1-C2',
+  };
 
   // Chat message state
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -415,7 +428,9 @@ export function SafeZoneModule() {
 
     // Intentar con Groq real via backend
     try {
-      let systemPrompt = config.safezone.systemPrompt
+      const mcerLevel = MODE_TO_MCER[conversationMode];
+
+      let systemPrompt = (MCER_PROMPTS.safezone[mcerLevel] + LANG_LOCK)
         .replace('{actividad_preferida}', topicToEnglish(onboarding.actividad_preferida))
         .replace('{red_social}', onboarding.red_social)
         .replace('{entretenimiento}', topicToEnglish(onboarding.entretenimiento))
@@ -429,12 +444,15 @@ export function SafeZoneModule() {
         systemPrompt += JSON_RESPONSE_SUFFIX;
       }
 
-      const history = messages.map(m => ({
-        role: m.sender === 'ai' ? 'assistant' : 'user',
-        parts: [{ text: m.text }]
-      }));
+      const history = messages
+        .filter(m => !m.isMilestone)
+        .map(m => ({
+          role: m.sender === 'ai' ? 'assistant' : 'user',
+          parts: [{ text: m.text }]
+        }));
 
       const currentSpeed = parseFloat(velocity);
+      const { temperature, maxTokens } = MCER_BASE[mcerLevel];
 
       const res = await fetch('/api/tutor', {
         method: 'POST',
@@ -444,14 +462,13 @@ export function SafeZoneModule() {
           history,
           systemPrompt,
           currentSpeed,
-          temperature: config.safezone.temperature,
-          maxTokens: config.safezone.maxTokens,
+          temperature,
+          maxTokens,
           hobby: onboarding.actividad_preferida,
           socialNetwork: onboarding.red_social,
           channel: onboarding.entretenimiento,
           escritoPercibido: percepcion.nivel_escrito_percibido,
           temorConversacional: percepcion.nivel_conversacional_percibido,
-          conversationMode,
         })
       });
 
@@ -889,7 +906,18 @@ export function SafeZoneModule() {
               {/* Conversation Mode Selector (independent from Velocity Cockpit) */}
               <div className="px-4 pb-3 flex items-center gap-2 shrink-0 flex-wrap">
                 <button
-                  onClick={() => setConversationMode('basic')}
+                  onClick={() => {
+                    if (conversationMode === 'basic') return;
+                    setConversationMode('basic');
+                    setMessages(prev => [...prev, {
+                      id: 'milestone-' + Date.now(),
+                      sender: 'ai',
+                      text: '',
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      isMilestone: true,
+                      milestoneType: 'basic',
+                    }]);
+                  }}
                   className={`px-3 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider border transition-all duration-300 ${
                     conversationMode === 'basic'
                       ? 'bg-orange-500/20 border-orange-400/50 text-orange-400 shadow-[0_0_12px_rgba(251,146,60,0.3)]'
@@ -899,7 +927,18 @@ export function SafeZoneModule() {
                   Safe Pace
                 </button>
                 <button
-                  onClick={() => setConversationMode('casual')}
+                  onClick={() => {
+                    if (conversationMode === 'casual') return;
+                    setConversationMode('casual');
+                    setMessages(prev => [...prev, {
+                      id: 'milestone-' + Date.now(),
+                      sender: 'ai',
+                      text: '',
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      isMilestone: true,
+                      milestoneType: 'casual',
+                    }]);
+                  }}
                   className={`px-3 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider border transition-all duration-300 ${
                     conversationMode === 'casual'
                       ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
@@ -909,7 +948,18 @@ export function SafeZoneModule() {
                   🌐 Casual Bridge
                 </button>
                 <button
-                  onClick={() => setConversationMode('native')}
+                  onClick={() => {
+                    if (conversationMode === 'native') return;
+                    setConversationMode('native');
+                    setMessages(prev => [...prev, {
+                      id: 'milestone-' + Date.now(),
+                      sender: 'ai',
+                      text: '',
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      isMilestone: true,
+                      milestoneType: 'native',
+                    }]);
+                  }}
                   className={`px-3 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider border transition-all duration-300 ${
                     conversationMode === 'native'
                       ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.3)]'
@@ -970,7 +1020,45 @@ export function SafeZoneModule() {
                 ref={chatContainerRef}
                 className="flex-1 overflow-y-auto max-h-[38vh] md:max-h-none p-5 space-y-4 custom-scrollbar bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.03),transparent)]"
               >
-                {messages.map((msg) => (
+                {messages.map((msg) => {
+                  if (msg.isMilestone) {
+                    const milestoneConfig: Record<string, { color: string; label: string; glow: string }> = {
+                      basic: { color: '#FF7A00', label: 'LEVEL UP: SAFE PACE (A1-A2) 🎯', glow: 'rgba(255,122,0,0.15)' },
+                      casual: { color: '#FFD600', label: 'LEVEL UP: CASUAL BRIDGE (B1-B2) ⚡', glow: 'rgba(255,214,0,0.15)' },
+                      native: { color: '#00E5A3', label: 'LEVEL UP: NATIVE MODE (C1-C2) 🚀', glow: 'rgba(0,229,163,0.15)' },
+                    };
+                    const mc = milestoneConfig[msg.milestoneType || 'basic'];
+                    return (
+                      <motion.div
+                        key={msg.id}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ type: 'spring', stiffness: 200, damping: 18, mass: 1 }}
+                        className="relative flex flex-col items-center justify-center py-6"
+                      >
+                        <div className="absolute inset-x-0 top-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                        <div
+                          className="relative z-10 flex items-center gap-3 px-5 py-2.5 rounded-2xl border backdrop-blur-xl text-[10px] font-black uppercase tracking-wider"
+                          style={{
+                            backgroundColor: `${mc.color}10`,
+                            borderColor: `${mc.color}30`,
+                            color: mc.color,
+                            boxShadow: `0 0 24px ${mc.glow}`,
+                          }}
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full animate-pulse"
+                            style={{
+                              backgroundColor: mc.color,
+                              boxShadow: `0 0 12px ${mc.color}`,
+                            }}
+                          />
+                          {mc.label}
+                        </div>
+                      </motion.div>
+                    );
+                  }
+                  return (
                   <div 
                     key={msg.id}
                     className={`flex items-start gap-3 max-w-[85%] ${msg.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
@@ -1061,7 +1149,8 @@ export function SafeZoneModule() {
                       </span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
 
                 {isTyping && (
                   <div className="flex items-start gap-3 max-w-[85%] mr-auto">
