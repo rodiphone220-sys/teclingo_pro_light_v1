@@ -70,10 +70,6 @@ function getGmail(): gmail_v1.Gmail {
   return gmailClient;
 }
 
-/* ──────────────────────────────────────────────
-   INITIALIZE SPREADSHEET  (auto-setup of tabs)
-   ────────────────────────────────────────────── */
-
 export async function initializeSpreadsheet(): Promise<void> {
   const sheets = getSheets();
 
@@ -138,10 +134,6 @@ export async function initializeSpreadsheet(): Promise<void> {
   }
 }
 
-/* ──────────────────────────────────────────────
-   USERS
-   ────────────────────────────────────────────── */
-
 export async function checkOrCreateUser(
   email: string,
   name: string,
@@ -190,10 +182,6 @@ export async function checkOrCreateUser(
   }
 }
 
-/* ──────────────────────────────────────────────
-   LOGS
-   ────────────────────────────────────────────── */
-
 export async function registerLog(
   email: string,
   action: 'LOGIN' | 'LOGOUT',
@@ -222,10 +210,6 @@ export async function registerLog(
     throw error;
   }
 }
-
-/* ──────────────────────────────────────────────
-   GRADES
-   ────────────────────────────────────────────── */
 
 export async function saveGrade(
   email: string,
@@ -258,10 +242,6 @@ export async function saveGrade(
     throw error;
   }
 }
-
-/* ──────────────────────────────────────────────
-   WELCOME EMAIL (Gmail API)
-   ────────────────────────────────────────────── */
 
 export async function sendWelcomeEmail(
   email: string,

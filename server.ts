@@ -9,9 +9,9 @@ import Groq from "groq-sdk";
 import dotenv from "dotenv";
 import cors from "cors";
 import { GRAMMAR_LIBRARY } from "./src/components/tools/grammarLibraryData";
-import authRoutes from "./src/routes/auth";
-import gradesRoutes from "./src/routes/grades";
-import { initializeSpreadsheet } from "./src/services/googleService";
+import authRoutes from "./server/routes/auth";
+import gradesRoutes from "./server/routes/grades";
+import { initializeSpreadsheet } from "./server/services/googleService";
 
 dotenv.config();
 
@@ -352,7 +352,7 @@ if (!process.env.VERCEL) {
       });
       app.use(vite.middlewares);
     } else {
-      const distPath = path.join(process.cwd(), "dist");
+      const distPath = path.resolve(process.cwd(), "dist");
       app.use(express.static(distPath));
       app.get("*", (req, res) => {
         res.sendFile(path.join(distPath, "index.html"));
