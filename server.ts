@@ -38,7 +38,7 @@ app.get("/api/health", (req, res) => {
 });
 
 app.post("/api/tutor", async (req, res) => {
-  const { message, history, systemPrompt, currentSpeed, conversationMode, hobby, channel } = req.body;
+  const { message, history, systemPrompt, currentSpeed, conversationMode, hobby, channel, temperature, maxTokens } = req.body;
   console.log(`[ALERTA NATIVA] Modo: ${conversationMode} | Velocidad: ${currentSpeed}`);
 
   // Si llega undefined o vacío, fuérzalo a 'basic'
@@ -100,6 +100,8 @@ Sigue estrictamente estas directrices:
     const result = await getGroq().chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: messages,
+      temperature: temperature !== undefined ? temperature : 0.7,
+      max_tokens: maxTokens !== undefined ? maxTokens : 256,
     });
 
     const content = result.choices[0]?.message?.content || "Lo siento, no pude procesar la respuesta.";

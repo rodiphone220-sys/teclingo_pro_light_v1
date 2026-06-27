@@ -85,6 +85,7 @@ export interface ChatMessage {
   text: string;
   translation?: string;
   timestamp: string;
+  quickResponses?: string[];
 }
 
 export const INITIAL_CHAT_MESSAGES: ChatMessage[] = [

@@ -38,7 +38,7 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.url === "/api/tutor") {
-    const { message, history, systemPrompt, currentSpeed, conversationMode } = data;
+    const { message, history, systemPrompt, currentSpeed, conversationMode, temperature, maxTokens } = data;
     if (!message) return res.status(400).json({ error: "Message is required" });
     try {
       const mode = conversationMode || 'basic';
@@ -62,7 +62,12 @@ export default async function handler(req: any, res: any) {
         });
       }
       messages.push({ role: "user", content: message });
-      const result = await groq.chat.completions.create({ model: "llama-3.3-70b-versatile", messages: messages as any });
+      const result = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: messages as any,
+        temperature: temperature !== undefined ? temperature : 0.7,
+        max_tokens: maxTokens !== undefined ? maxTokens : 256,
+      });
       const content = result.choices[0]?.message?.content || "Lo siento, no pude procesar.";
       return res.status(200).json({ content, sources: [] });
     } catch (error: any) {

@@ -9,10 +9,10 @@ import {
   EyeOff, 
   Send, 
   Gamepad2, 
-  Flame, 
+  Flame,
+  Zap,
   HelpCircle,
   RotateCcw,
-  CheckCircle2,
   Lock,
   MessageSquare,
   User,
@@ -28,6 +28,7 @@ import {
   SAFEZONE_MOCK_DATA, 
   ChatMessage
 } from '../data/safeZoneContext';
+import { useAiToolsConfig, JSON_RESPONSE_SUFFIX } from '../components/AdminCoreDashboard';
 
 const VELOCITY_STEPS = [
   { value: '0.60', label: '0.60x (Búnker Profundo)', speed: 0.60, desc: 'Ultralento, ideal para asimilar fonemas paso a paso.' },
@@ -60,6 +61,26 @@ const translateText = async (text: string, targetLang = 'es'): Promise<string> =
     return text;
   }
 };
+
+function extractQuickResponses(text: string): { cleanText: string; quickResponses: string[] | null } {
+  const patterns = [
+    /```(?:json)?\s*(\{[\s\S]*?"quick_responses"\s*:\s*\[[\s\S]*?\]\s*[\s\S]*?\})\s*```/,
+    /(\{[\s\S]*?"quick_responses"\s*:\s*\[[\s\S]*?\]\s*[\s\S]*?\})[\s\n]*$/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed.quick_responses) && parsed.quick_responses.length > 0) {
+          const cleanText = text.replace(match[0], '').replace(/\n+$/, '').trim();
+          return { cleanText, quickResponses: parsed.quick_responses.slice(0, 3) };
+        }
+      } catch {}
+    }
+  }
+  return { cleanText: text, quickResponses: null };
+}
 
 const SAFEZONE_SYSTEM_PROMPT = `You are SafePal, an elite, highly adaptive, and incredibly engaging AI English Tutor for Spanish speakers. Your mission is to hold a natural, exciting, and supportive conversation.
 
@@ -99,8 +120,10 @@ export function SafeZoneModule() {
     };
   });
 
-  // Onboarding Step: 1 = Interests, 2 = Companion selection, 3 = Sliders, 4 = Success Screen
-  const [onboardingStep, setOnboardingStep] = useState<number>(1);
+  const [unleashMode, setUnleashMode] = useState<boolean>(false);
+
+  // Admin AiToolsConfig context for dynamic systemPrompt, temperature, maxTokens, voiceSpeed
+  const { config } = useAiToolsConfig();
 
   // Chat Velocity State
   const [velocity, setVelocity] = useState<string>(() => {
@@ -178,120 +201,75 @@ export function SafeZoneModule() {
   // Use a ref to feed the up-to-date handleSendMessage down to transcription event listener
   const handleSendMessageRef = useRef<any>(null);
 
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      try {
-        const rec = new SpeechRecognition();
-        rec.continuous = false;
-        rec.interimResults = false;
-        rec.lang = 'en-US';
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-        rec.onstart = () => {
-          setIsRecording(true);
-          setRecognitionError(null);
-        };
-
-        rec.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
-          if (transcript && transcript.trim() && handleSendMessageRef.current) {
-            handleSendMessageRef.current(transcript);
-          }
-        };
-
-        rec.onerror = (event: any) => {
-          console.warn("Speech Recognition error captured: ", event.error);
-          setRecognitionError(event.error);
-          setIsRecording(false);
-
-          // If it failed/aborted immediately (e.g. within 1.5 seconds of starting) or block permission,
-          // we activate the smart simulated fallback so the student is never left stuck.
-          const duration = Date.now() - recordingStartTimeRef.current;
-          const isImmediateAbort = event.error === 'aborted' && duration < 1500;
-          const isPermissionBlock = event.error === 'not-allowed';
-
-          if (isImmediateAbort || isPermissionBlock || event.error === 'no-speech' || event.error === 'audio-capture') {
-            console.log("SafeZone AI: Web Speech API error/abort detected. Activating elegant simulated transcription fallback...");
-            setIsRecording(true);
-            setTimeout(() => {
-              const simulatedPhrases = [
-                "I feel so happy to speak English without any pressure!",
-                "I would love to enjoy the delicious typical food with friends",
-                "This viral trend in my favorite social network looks quite interesting",
-                "I want to practice my pronunciation tools and speaking skills today in Greenfield"
-              ];
-              const randomPhrase = simulatedPhrases[Math.floor(Math.random() * simulatedPhrases.length)];
-              if (handleSendMessageRef.current) {
-                handleSendMessageRef.current(randomPhrase);
-              }
-              setIsRecording(false);
-            }, 1500);
-          }
-        };
-
-        rec.onend = () => {
-          setIsRecording(false);
-        };
-
-        recognitionRef.current = rec;
-      } catch (e) {
-        console.warn("SafeZoneModule: SpeechRecognition constructor failed or is illegal in this iframe sandbox:", e);
-      }
-    }
-  }, []);
-
-  const handleToggleRecord = () => {
-    if (isRecording) {
-      recordingStartTimeRef.current = 0; // Intentional stop
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {
-          console.error(e);
-        }
-      } else {
+  const startSpeechRecognition = () => {
+    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionClass) {
+      setRecognitionError('not-supported');
+      setIsRecording(true);
+      setTimeout(() => {
+        const fallback = ["I feel so happy to speak English without any pressure!","I would love to enjoy the delicious typical food with friends","This viral trend in my favorite social network looks quite interesting","I want to practice my pronunciation tools and speaking skills today in Greenfield"];
+        if (handleSendMessageRef.current) handleSendMessageRef.current(fallback[Math.floor(Math.random() * fallback.length)]);
         setIsRecording(false);
-      }
-    } else {
-      if (recognitionRef.current) {
-        try {
-          recordingStartTimeRef.current = Date.now();
-          recognitionRef.current.start();
-        } catch (e) {
-          console.error(e);
-          // If start itself throws an exception immediately, fall back to simulation
+      }, 1500);
+      return;
+    }
+    try {
+      const rec = new SpeechRecognitionClass();
+      rec.continuous = isIOS; // iOS: debe ser true o no dispara results
+      rec.interimResults = false;
+      rec.lang = 'en-US';
+
+      rec.onstart = () => { setIsRecording(true); setRecognitionError(null); };
+
+      rec.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript && transcript.trim() && handleSendMessageRef.current)
+          handleSendMessageRef.current(transcript);
+      };
+
+      rec.onerror = (event: any) => {
+        console.warn("Speech Recognition error: ", event.error);
+        setRecognitionError(event.error);
+        setIsRecording(false);
+        recognitionRef.current = null;
+        const duration = Date.now() - recordingStartTimeRef.current;
+        if (event.error === 'aborted' && duration < 1500 || event.error === 'not-allowed' || event.error === 'no-speech' || event.error === 'audio-capture') {
           setIsRecording(true);
           setTimeout(() => {
-            const simulatedPhrases = [
-              "I feel so happy to speak English without any pressure!",
-              "I would love to enjoy the delicious typical food with friends",
-              "This viral trend in my favorite social network looks quite interesting",
-              "I want to practice my pronunciation tools and speaking skills today in Greenfield"
-            ];
-            const randomPhrase = simulatedPhrases[Math.floor(Math.random() * simulatedPhrases.length)];
-            if (handleSendMessageRef.current) {
-              handleSendMessageRef.current(randomPhrase);
-            }
+            const fallback = ["I feel so happy to speak English without any pressure!","I would love to enjoy the delicious typical food with friends","This viral trend in my favorite social network looks quite interesting","I want to practice my pronunciation tools and speaking skills today in Greenfield"];
+            if (handleSendMessageRef.current) handleSendMessageRef.current(fallback[Math.floor(Math.random() * fallback.length)]);
             setIsRecording(false);
           }, 1500);
         }
-      } else {
-        // Fallback simulation text if Speech API not supported/active in sandboxed iframe environment
-        setIsRecording(true);
-        setTimeout(() => {
-          const simulatedPhrases = [
-            "I feel so happy to speak English without any pressure!",
-            "I would love to enjoy the delicious typical food with friends",
-            "This viral trend in my favorite social network looks quite interesting",
-            "I want to practice my pronunciation tools and speaking skills today in Greenfield"
-          ];
-          const randomPhrase = simulatedPhrases[Math.floor(Math.random() * simulatedPhrases.length)];
-          if (handleSendMessageRef.current) {
-            handleSendMessageRef.current(randomPhrase);
-          }
-          setIsRecording(false);
-        }, 1500);
-      }
+      };
+
+      rec.onend = () => { setIsRecording(false); recognitionRef.current = null; };
+
+      recordingStartTimeRef.current = Date.now();
+      rec.start();
+      recognitionRef.current = rec;
+    } catch (e) {
+      console.warn("SafeZoneModule: SpeechRecognition constructor failed:", e);
+      setRecognitionError('not-supported');
+      setIsRecording(true);
+      setTimeout(() => {
+        const fallback = ["I feel so happy to speak English without any pressure!","I would love to enjoy the delicious typical food with friends","This viral trend in my favorite social network looks quite interesting","I want to practice my pronunciation tools and speaking skills today in Greenfield"];
+        if (handleSendMessageRef.current) handleSendMessageRef.current(fallback[Math.floor(Math.random() * fallback.length)]);
+        setIsRecording(false);
+      }, 1500);
+    }
+  };
+
+  const handleToggleRecord = () => {
+    if (isRecording) {
+      recordingStartTimeRef.current = 0;
+      try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+      setIsRecording(false);
+    } else {
+      startSpeechRecognition();
     }
   };
 
@@ -341,8 +319,7 @@ export function SafeZoneModule() {
       return;
     }
 
-    const activeIdx = getVelocityIndex(velocity);
-    const currentSpeed = overrideSpeed !== undefined ? overrideSpeed : VELOCITY_STEPS[activeIdx].speed;
+    const currentSpeed = overrideSpeed !== undefined ? overrideSpeed : config.safezone.voiceSpeed;
 
     setSpeakingMessageId(messageId);
 
@@ -391,18 +368,15 @@ export function SafeZoneModule() {
   const entertainmentTypes = ['Music', 'Movies/Series', 'Podcast Geek', 'Cooking'];
 
   const handleFinishOnboarding = () => {
-    setOnboardingStep(4);
-    setTimeout(() => {
-      setIsOnboarded(true);
-      const welcomeMsg: ChatMessage = {
-        id: 'welcome',
-        sender: 'ai',
-        text: `Hi there! I'm Pal. Let's practice English talking about ${onboarding.actividad_preferida} and ${onboarding.entretenimiento}. How are you today?`,
-        translation: '',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages([welcomeMsg]);
-    }, 3200);
+    setIsOnboarded(true);
+    const welcomeMsg: ChatMessage = {
+      id: 'welcome',
+      sender: 'ai',
+      text: `Hi there! I'm Pal. Let's practice English talking about ${onboarding.actividad_preferida} and ${onboarding.entretenimiento}. How are you today?`,
+      translation: '',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setMessages([welcomeMsg]);
   };
 
   // Reset Onboarding/Demo
@@ -413,7 +387,6 @@ export function SafeZoneModule() {
       localStorage.removeItem('safezone_percepcion_data');
       localStorage.removeItem('safezone_chat_messages');
       setIsOnboarded(false);
-      setOnboardingStep(1);
       setMessages([{
         id: 'welcome',
         sender: 'ai',
@@ -442,11 +415,19 @@ export function SafeZoneModule() {
 
     // Intentar con Groq real via backend
     try {
-      const systemPrompt = SAFEZONE_SYSTEM_PROMPT
+      let systemPrompt = config.safezone.systemPrompt
         .replace('{actividad_preferida}', topicToEnglish(onboarding.actividad_preferida))
         .replace('{red_social}', onboarding.red_social)
         .replace('{entretenimiento}', topicToEnglish(onboarding.entretenimiento))
         .replace('{companion_type}', onboarding.companion_type || 'friend');
+
+      if (unleashMode) {
+        systemPrompt += '\n\nINSTRUCCIÓN ADICIONAL: El usuario ha activado el Modo Unleash en vivo. Abandona los temas cotidianos y cómodos; desafía inmediatamente al estudiante elevando la complejidad léxica, usando temas globales, debates o estructuras gramaticales avanzadas.';
+      }
+
+      if (config.safezone.enableJsonResponses) {
+        systemPrompt += JSON_RESPONSE_SUFFIX;
+      }
 
       const history = messages.map(m => ({
         role: m.sender === 'ai' ? 'assistant' : 'user',
@@ -463,6 +444,8 @@ export function SafeZoneModule() {
           history,
           systemPrompt,
           currentSpeed,
+          temperature: config.safezone.temperature,
+          maxTokens: config.safezone.maxTokens,
           hobby: onboarding.actividad_preferida,
           socialNetwork: onboarding.red_social,
           channel: onboarding.entretenimiento,
@@ -478,19 +461,21 @@ export function SafeZoneModule() {
       const content = data.content || '';
 
       if (content) {
+        const { cleanText, quickResponses } = extractQuickResponses(content);
         const msgId = (Date.now() + 1).toString();
         const aiMsg: ChatMessage = {
           id: msgId,
           sender: 'ai',
-          text: content,
+          text: cleanText || content,
           translation: '',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          quickResponses: quickResponses || undefined,
         };
         setMessages(prev => [...prev, aiMsg]);
         setIsTyping(false);
-        handleSpeakText(content, msgId);
+        handleSpeakText(cleanText || content, msgId);
         // Fetch Spanish translation in background
-        translateText(content, 'es').then(translation => {
+        translateText(cleanText || content, 'es').then(translation => {
           setMessages(prev => prev.map(m => m.id === msgId ? { ...m, translation } : m));
         });
         return;
@@ -512,7 +497,7 @@ export function SafeZoneModule() {
       } else if (textLower.includes('what is your name') || textLower.includes("what's your name") || textLower.includes('whats your name') || textLower.includes('your name') || textLower.includes('cómo te llamas') || textLower.includes('como te llamas')) {
         if (isFriend) {
           replyText = "Haha, did you forget my name, buddy? It's your childhood friend! Since we're in the SafeZone, I'm your personalized AI Companion, you can call me Buddy AI. How have you been?";
-          replyTranslation = "Jaja, ¿te olvidaste de mi nombre, compadre? ¡Soy tu amigo de la infancia! Como estamos en SafeZone, soy tu compañero de IA personalizado, puedes llamarme Amigo AI. ¿Cómo has estado?";
+          replyTranslation = "Jaja, ¿te olvidaste de mi nombre, amigo mío? ¡Soy tu amigo de la infancia! Como estamos en SafeZone, soy tu compañero de IA personalizado, puedes llamarme Amigo AI. ¿Cómo has estado?";
         } else {
           replyText = "I am your SafeZone AI Helper! You can call me SafePal. I'm here to match your vibes and help you practice English without any stress. What's your name?";
           replyTranslation = "¡Soy tu asistente de SafeZone AI! Puedes llamarme SafePal. Estoy aquí para adaptarme a tu ritmo y ayudarte a practicar inglés sin estrés. ¿Cuál es tu nombre?";
@@ -653,222 +638,150 @@ export function SafeZoneModule() {
             {/* Ambient subtle glow background */}
             <div className="absolute top-0 right-0 w-48 h-48 bg-[#10b981]/5 rounded-full filter blur-[60px] pointer-events-none" />
 
-            {/* Header Steps */}
-            <div className="flex items-center justify-between pb-6 border-b border-white/5 mb-8">
-              <span className="text-[10px] font-mono font-black uppercase tracking-widest text-[#10b981] flex items-center gap-1.5">
-                <Sparkles size={11} /> Onboarding Pasaporte SafeZone
-              </span>
-              <span className="text-[9.5px] font-mono text-white/40 font-bold">
-                PASO {onboardingStep} DE 4
-              </span>
+            {/* Header */}
+            <div className="flex items-center gap-3 pb-6 border-b border-white/5 mb-6">
+              <Sparkles size={14} className="text-[#10b981]" />
+              <div>
+                <span className="text-[10px] font-mono font-black uppercase tracking-widest text-[#10b981]">
+                  Configuración Inicial
+                </span>
+                <p className="text-[9px] font-mono text-white/40 font-medium mt-0.5">
+                  Personaliza tu experiencia segura de IA
+                </p>
+              </div>
             </div>
 
-            {onboardingStep === 1 && (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
-                    <Gamepad2 size={16} className="text-[#10b981]" /> 1. Cuéntanos sobre tus Gustos Cotidianos
-                  </h3>
-                  <p className="text-xs text-white/50 leading-relaxed">
-                    SafeZone usará tus aficiones reales para iniciar conversaciones cómodas y familiares. Nada de temas académicos rígidos.
-                  </p>
-                </div>
+            {/* Scrollable sections */}
+            <div className="max-h-[55vh] overflow-y-auto pr-1 space-y-7">
+              {/* SECTION 1: INTERESTS */}
+              <div className="space-y-4">
+                <h3 className="text-[11px] font-mono font-black uppercase tracking-wider text-white/50 flex items-center gap-2">
+                  <Gamepad2 size={13} className="text-[#10b981]" /> Intereses y Preferencias
+                </h3>
 
-                <div className="space-y-5 pt-2">
-                  {/* Q1 Activity */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Tus planes de fin de semana preferidos?</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {weekendActivities.map(act => (
-                        <button
-                          key={act}
-                          type="button"
-                          onClick={() => setOnboarding(prev => ({ ...prev, actividad_preferida: act }))}
-                          className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
-                            onboarding.actividad_preferida === act
-                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                          }`}
-                        >
-                          {act}
-                          {onboarding.actividad_preferida === act && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Q2 Social Network */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Cuál red social abres primero al despertar?</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {socialNetworks.map(social => (
-                        <button
-                          key={social}
-                          type="button"
-                          onClick={() => setOnboarding(prev => ({ ...prev, red_social: social }))}
-                          className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
-                            onboarding.red_social === social
-                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                          }`}
-                        >
-                          {social}
-                          {onboarding.red_social === social && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Q3 Entertainment */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Tu entretenimiento digital preferido?</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {entertainmentTypes.map(ent => (
-                        <button
-                          key={ent}
-                          type="button"
-                          onClick={() => setOnboarding(prev => ({ ...prev, entretenimiento: ent }))}
-                          className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
-                            onboarding.entretenimiento === ent
-                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                          }`}
-                        >
-                          {ent}
-                          {onboarding.entretenimiento === ent && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-white/5 flex justify-end">
-                  <button
-                    onClick={() => setOnboardingStep(2)}
-                    className="px-6 py-3 bg-[#10b981] hover:bg-[#059669] text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
-                  >
-                    Siguiente Paso
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {onboardingStep === 2 && (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
-                    <UserCheck size={16} className="text-[#10b981]" /> 2. Tu Compañero Conversacional
-                  </h3>
-                  <p className="text-xs text-white/50 leading-relaxed">
-                    Configura la identidad y el tono de tu acompañante de Inteligencia Artificial para adecuarlo a tu comodidad.
-                  </p>
-                </div>
-
-                <div className="space-y-5 pt-2">
-                  {/* Companion Type */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Con quién prefieres conversar?</label>
-                    <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2.5">
+                  <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Tus planes de fin de semana preferidos?</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {weekendActivities.map(act => (
                       <button
+                        key={act}
                         type="button"
-                        onClick={() => setOnboarding(prev => ({ ...prev, companion_type: 'friend' }))}
-                        className={`p-4 rounded-2xl border text-xs font-bold transition-all text-left flex flex-col gap-2 ${
-                          onboarding.companion_type === 'friend'
+                        onClick={() => setOnboarding(prev => ({ ...prev, actividad_preferida: act }))}
+                        className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
+                          onboarding.actividad_preferida === act
                             ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
                             : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
                         }`}
                       >
-                        <div className="flex justify-between items-center w-full">
-                          <User size={18} className={onboarding.companion_type === 'friend' ? 'text-[#10b981]' : 'text-white/40'} />
-                          {onboarding.companion_type === 'friend' && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </div>
-                        <div>
-                          <p className="text-xs font-black uppercase text-white">Amigo de la Infancia</p>
-                          <p className="text-[9.5px] font-normal text-white/40 normal-case mt-0.5">Tono cálido, bromas amistosas y recuerdos de la infancia.</p>
-                        </div>
+                        {act}
+                        {onboarding.actividad_preferida === act && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
                       </button>
+                    ))}
+                  </div>
+                </div>
 
+                <div className="space-y-2.5">
+                  <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Cuál red social abres primero al despertar?</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {socialNetworks.map(social => (
                       <button
+                        key={social}
                         type="button"
-                        onClick={() => setOnboarding(prev => ({ ...prev, companion_type: 'stranger' }))}
-                        className={`p-4 rounded-2xl border text-xs font-bold transition-all text-left flex flex-col gap-2 ${
-                          onboarding.companion_type === 'stranger'
+                        onClick={() => setOnboarding(prev => ({ ...prev, red_social: social }))}
+                        className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
+                          onboarding.red_social === social
                             ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
                             : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
                         }`}
                       >
-                        <div className="flex justify-between items-center w-full">
-                          <HelpCircle size={18} className={onboarding.companion_type === 'stranger' ? 'text-[#10b981]' : 'text-white/40'} />
-                          {onboarding.companion_type === 'stranger' && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </div>
-                        <div>
-                          <p className="text-xs font-black uppercase text-white">Un Desconocido</p>
-                          <p className="text-[9.5px] font-normal text-white/40 normal-case mt-0.5">Tono educado y respetuoso, preguntas casuales tipo rompehielos.</p>
-                        </div>
+                        {social}
+                        {onboarding.red_social === social && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
                       </button>
-                    </div>
-                  </div>
-
-                  {/* Gender Select */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Qué género prefieres para la voz y personalidad AI?</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { id: 'female', label: 'Femenino', emoji: '👩' },
-                        { id: 'male', label: 'Masculino', emoji: '👨' },
-                        { id: 'nonbinary', label: 'No Binario', emoji: '✨' }
-                      ].map(g => (
-                        <button
-                          key={g.id}
-                          type="button"
-                          onClick={() => {
-                            setOnboarding(prev => ({ ...prev, companion_gender: g.id as any }));
-                            setVoiceGender(g.id === 'male' ? 'male' : 'female');
-                          }}
-                          className={`p-3 rounded-xl border text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-1.5 ${
-                            onboarding.companion_gender === g.id
-                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                          }`}
-                        >
-                          <span className="text-lg">{g.emoji}</span>
-                          <span className="text-[10px] uppercase font-black tracking-wide">{g.label}</span>
-                        </button>
-                      ))}
-                    </div>
+                    ))}
                   </div>
                 </div>
 
-                <div className="pt-6 border-t border-white/5 flex gap-3 justify-between">
+                <div className="space-y-2.5">
+                  <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Tu entretenimiento digital preferido?</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {entertainmentTypes.map(ent => (
+                      <button
+                        key={ent}
+                        type="button"
+                        onClick={() => setOnboarding(prev => ({ ...prev, entretenimiento: ent }))}
+                        className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
+                          onboarding.entretenimiento === ent
+                            ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                            : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
+                        }`}
+                      >
+                        {ent}
+                        {onboarding.entretenimiento === ent && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="h-px bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+
+              {/* SECTION 2: COMPANION */}
+              <div className="space-y-4">
+                <h3 className="text-[11px] font-mono font-black uppercase tracking-wider text-white/50 flex items-center gap-2">
+                  <UserCheck size={13} className="text-[#10b981]" /> Acompañante Conversacional
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => setOnboardingStep(1)}
-                    className="px-5 py-3 bg-white/5 border border-white/10 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                    type="button"
+                    onClick={() => setOnboarding(prev => ({ ...prev, companion_type: 'friend' }))}
+                    className={`p-4 rounded-2xl border text-xs font-bold transition-all text-left flex flex-col gap-2 ${
+                      onboarding.companion_type === 'friend'
+                        ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                        : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
+                    }`}
                   >
-                    Atrás
+                    <div className="flex justify-between items-center w-full">
+                      <User size={18} className={onboarding.companion_type === 'friend' ? 'text-[#10b981]' : 'text-white/40'} />
+                      {onboarding.companion_type === 'friend' && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
+                    </div>
+                    <div>
+                      <p className="text-xs font-black uppercase text-white">Amigo de la Infancia</p>
+                      <p className="text-[9.5px] font-normal text-white/40 normal-case mt-0.5">Tono cálido, bromas amistosas y recuerdos de la infancia.</p>
+                    </div>
                   </button>
                   <button
-                    onClick={() => setOnboardingStep(3)}
-                    className="px-6 py-3 bg-[#10b981] hover:bg-[#059669] text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
+                    type="button"
+                    onClick={() => setOnboarding(prev => ({ ...prev, companion_type: 'stranger' }))}
+                    className={`p-4 rounded-2xl border text-xs font-bold transition-all text-left flex flex-col gap-2 ${
+                      onboarding.companion_type === 'stranger'
+                        ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                        : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
+                    }`}
                   >
-                    Siguiente Paso
+                    <div className="flex justify-between items-center w-full">
+                      <HelpCircle size={18} className={onboarding.companion_type === 'stranger' ? 'text-[#10b981]' : 'text-white/40'} />
+                      {onboarding.companion_type === 'stranger' && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
+                    </div>
+                    <div>
+                      <p className="text-xs font-black uppercase text-white">Un Desconocido</p>
+                      <p className="text-[9.5px] font-normal text-white/40 normal-case mt-0.5">Tono educado y respetuoso, preguntas casuales tipo rompehielos.</p>
+                    </div>
                   </button>
                 </div>
               </div>
-            )}
 
-            {onboardingStep === 3 && (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
-                    <Sliders size={16} className="text-[#10b981]" /> 3. Tu Auto-Percepción de Confianza
-                  </h3>
-                  <p className="text-xs text-white/50 leading-relaxed">
-                    Sé súper honesto, compadre. Estos rangos nos ayudan a calibrar la tolerancia a errores de la IA dentro de SafeZone.
-                  </p>
-                </div>
 
-                <div className="space-y-6 pt-4">
-                  {/* Slider 1: Written English */}
+
+              {/* SECTION 4: SLIDERS */}
+              <div className="space-y-4">
+                <h3 className="text-[11px] font-mono font-black uppercase tracking-wider text-white/50 flex items-center gap-2">
+                  <Sliders size={13} className="text-[#10b981]" /> Autopercepción de Dominio
+                </h3>
+                <p className="text-[10px] text-white/50 leading-relaxed -mt-2">
+                  Estos rangos nos ayudan a calibrar la tolerancia a errores de la IA dentro de SafeZone.
+                </p>
+                <div className="space-y-4">
                   <div className="space-y-2.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
                     <div className="flex justify-between items-center">
                       <span className="text-[10.5px] font-bold text-white/80">Nivel de Escritura Autopercibido</span>
@@ -888,7 +801,6 @@ export function SafeZoneModule() {
                     </div>
                   </div>
 
-                  {/* Slider 2: Speaking English */}
                   <div className="space-y-2.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
                     <div className="flex justify-between items-center">
                       <span className="text-[10.5px] font-bold text-white/80">Nivel de Conversación Autopercibido</span>
@@ -903,60 +815,23 @@ export function SafeZoneModule() {
                       className="w-full accent-[#10b981] h-1.5 bg-white/10 rounded-lg cursor-pointer"
                     />
                     <div className="flex justify-between text-[8px] font-mono text-white/30 uppercase tracking-widest pt-1">
-                      <span>Me da pánico</span>
-                      <span>Cero pena</span>
+                      <span>Inicial</span>
+                      <span>Avanzado</span>
                     </div>
                   </div>
                 </div>
-
-                <div className="pt-6 border-t border-white/5 flex gap-3 justify-between">
-                  <button
-                    onClick={() => setOnboardingStep(2)}
-                    className="px-5 py-3 bg-white/5 border border-white/10 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
-                  >
-                    Atrás
-                  </button>
-                  <button
-                    onClick={handleFinishOnboarding}
-                    className="px-6 py-3 bg-[#10b981] hover:bg-[#059669] text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
-                  >
-                    Finalizar Pasaporte
-                  </button>
-                </div>
               </div>
-            )}
+            </div>
 
-            {onboardingStep === 4 && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="text-center py-8 space-y-5"
+            {/* Action */}
+            <div className="pt-6 border-t border-white/5 mt-6">
+              <button
+                onClick={handleFinishOnboarding}
+                className="w-full py-3.5 bg-gradient-to-r from-[#10b981] to-[#059669] hover:from-[#10b981] hover:to-[#059669] text-black rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
               >
-                <div className="mx-auto w-16 h-16 rounded-full bg-[#10b981]/25 border border-[#10b981]/40 flex items-center justify-center text-[#10b981] shadow-[0_0_30px_rgba(16,185,129,0.2)] animate-banner">
-                  <CheckCircle2 size={32} />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-lg font-black text-white uppercase tracking-tight">¡Listo, compadre!</h3>
-                  <p className="text-xs text-white/80 font-semibold max-w-sm mx-auto leading-relaxed">
-                    Información guardada. Tu asistente <span className="text-[#10b981] font-black">SafeZone AI</span> usará esto como guía exclusiva para tus conversaciones.
-                  </p>
-                </div>
-                <div className="p-4 rounded-2xl bg-[#10b981]/5 border border-[#10b981]/15 text-left space-y-1.5 max-w-sm mx-auto font-sans">
-                  <p className="text-[10px] font-mono font-black uppercase text-[#10b981] tracking-wider flex items-center gap-1">
-                    <UserCheck size={11} /> Filtro Psicológico Calibrado:
-                  </p>
-                  <div className="text-[9.5px] font-medium text-white/60 space-y-1">
-                    <p>• Temas favoritos: <span className="text-white font-bold">{onboarding.actividad_preferida} & {onboarding.entretenimiento}</span></p>
-                    <p>• Red Preferida: <span className="text-white font-bold">{onboarding.red_social}</span></p>
-                    <p>• Sintonía de Ansiedad: <span className="text-white font-bold">Respuesta adaptada para {percepcion.nivel_conversacional_percibido}% de hablar</span></p>
-                    <p>• Acompañante AI: <span className="text-white font-bold">{onboarding.companion_type === 'friend' ? 'Amigo de Infancia 👩👨' : 'Un Desconocido 👤'} ({onboarding.companion_gender === 'female' ? 'Mujer' : onboarding.companion_gender === 'male' ? 'Hombre' : 'No Binario'})</span></p>
-                  </div>
-                </div>
-                <div className="text-[10px] tracking-widest text-white/30 font-bold uppercase animate-pulse">
-                  Uniendo al chat seguro...
-                </div>
-              </motion.div>
-            )}
+                INICIAR EXPERIENCIA SEGURA
+              </button>
+            </div>
           </motion.div>
         ) : (
           /* CONVERSATIONAL CHAT SCREEN */
@@ -1048,6 +923,48 @@ export function SafeZoneModule() {
                 </span>
               </div>
 
+              {/* Unleash Mode — Live Toggle */}
+              <div className="px-4 pb-2 shrink-0">
+                <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all duration-300">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Zap
+                      size={12}
+                      className={`shrink-0 transition-colors duration-300 ${
+                        unleashMode ? 'text-[#DEFF9A]' : 'text-white/20'
+                      }`}
+                    />
+                    <span
+                      className={`text-[9px] font-black uppercase tracking-wider transition-colors duration-300 ${
+                        unleashMode ? 'text-[#DEFF9A]' : 'text-white/30'
+                      }`}
+                    >
+                      UNLEASH
+                    </span>
+                    {unleashMode && (
+                      <span className="text-[7px] font-mono text-[#DEFF9A]/60 tracking-wide truncate">
+                        Modo libre activo — La IA ha elevado el nivel de vocabulario y discusión
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUnleashMode(!unleashMode)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-300 ${
+                      unleashMode ? 'bg-gradient-to-r from-cyan-500 to-[#DEFF9A]' : 'bg-white/10'
+                    }`}
+                    role="switch"
+                    aria-checked={unleashMode}
+                    title={unleashMode ? 'Desactivar Modo Unleash' : 'Activar Modo Unleash'}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-300 ${
+                        unleashMode ? 'translate-x-[18px]' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
               {/* Chat scrolling log */}
               <div 
                 ref={chatContainerRef}
@@ -1112,6 +1029,29 @@ export function SafeZoneModule() {
                               {revealedTranslations[msg.id] ? <EyeOff size={11} /> : <Eye size={11} />}
                               {revealedTranslations[msg.id] ? 'Ocultar traducción' : 'Botón de Auxilio (Traducir)'}
                             </button>
+                          </div>
+                        )}
+
+                        {/* Quick Response suggestions */}
+                        {msg.sender === 'ai' && msg.quickResponses && msg.quickResponses.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-white/[0.04]">
+                            {msg.quickResponses.map((qr, idx) => (
+                              <motion.button
+                                key={idx}
+                                initial={{ opacity: 0, y: 6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: idx * 0.08, duration: 0.25 }}
+                                whileHover={{ scale: 1.04 }}
+                                whileTap={{ scale: 0.96 }}
+                                onClick={() => {
+                                  setInputText(qr);
+                                  setTimeout(() => handleSendMessage(qr), 50);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-white/[0.03] border border-cyan-500/20 hover:border-cyan-400/40 text-[10px] font-medium text-white/60 hover:text-white transition-all"
+                              >
+                                {qr}
+                              </motion.button>
+                            ))}
                           </div>
                         )}
                       </div>

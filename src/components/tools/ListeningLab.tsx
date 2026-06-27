@@ -4,7 +4,8 @@
  */
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { 
+import { useAiToolsConfig } from '../AdminCoreDashboard';
+import {
   Headphones, 
   ChevronLeft, 
   Play, 
@@ -103,6 +104,7 @@ export function ListeningLab({ onClose }: { onClose: () => void }) {
   const [showSubtitles, setShowSubtitles] = useState(false);
   const [accent, setAccent] = useState('American');
   const [speed, setSpeed] = useState(1);
+  const { config } = useAiToolsConfig();
   const [backgroundNoise, setBackgroundNoise] = useState(false);
   const [isStarted, setIsStarted] = useState(false);
   const [difficulty, setDifficulty] = useState<string | 'Mixed'>('Mixed');
@@ -194,7 +196,7 @@ export function ListeningLab({ onClose }: { onClose: () => void }) {
       const blob = await res.blob();
       const audioUrl = URL.createObjectURL(blob);
       const audio = new Audio(audioUrl);
-      audio.playbackRate = speed;
+      audio.playbackRate = config.listening.voiceSpeed;
       audioRef.current = audio;
 
       audio.onended = () => {

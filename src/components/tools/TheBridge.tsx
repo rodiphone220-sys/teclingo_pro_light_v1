@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GlassCard } from '../GlassCard';
+import { useAiToolsConfig } from '../AdminCoreDashboard';
 import { VoltageMeter } from '../ui/VoltageMeter';
 
 interface Phoneme {
@@ -100,6 +101,7 @@ const CEFR_LEVELS = {
 };
 
 export function TheBridge({ onClose }: { onClose: () => void }) {
+  const { config } = useAiToolsConfig();
   const [currentLevel, setCurrentLevel] = useState<keyof typeof CEFR_LEVELS>('B1');
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -203,7 +205,7 @@ export function TheBridge({ onClose }: { onClose: () => void }) {
       const blob = await res.blob();
       const audioUrl = URL.createObjectURL(blob);
       const audio = new Audio(audioUrl);
-      audio.playbackRate = 0.9;
+      audio.playbackRate = config.bridge.voiceSpeed;
       audioRef.current = audio;
 
       // Estimate word timings based on audio duration

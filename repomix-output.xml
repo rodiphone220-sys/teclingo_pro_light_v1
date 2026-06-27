@@ -42,6 +42,8 @@ The content is organized as follows:
 <directory_structure>
 .env.example
 .gitignore
+.vercelignore
+api/index.ts
 index.html
 metadata.json
 package.json
@@ -128,21 +130,35 @@ src/index.css
 src/main.tsx
 src/services/geminiService.ts
 tsconfig.json
+vercel.json
 vite.config.ts
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
 
-<file path=".gitignore">
-node_modules/
-build/
-dist/
-coverage/
-.DS_Store
-*.log
-.env*
-!.env.example
+<file path=".env.example">
+# GROQ_API_KEY: Required for Groq AI API calls.
+# Get your API key at https://console.groq.com
+# Set this as an environment variable in Vercel (Production, Preview, Development)
+GROQ_API_KEY="your_groq_api_key_here"
+
+# TTS_API_KEY: Required for ElevenLabs Text-to-Speech API (voces premium HD).
+# Get your API key at https://elevenlabs.io
+# Set this as an environment variable in Vercel (Production, Preview, Development)
+TTS_API_KEY="your_elevenlabs_api_key_here"
+
+# APP_URL: The URL where this applet is hosted.
+APP_URL="https://your-app.vercel.app"
+</file>
+
+<file path=".vercelignore">
+node_modules
+.git
+*.md
+.env
+.env.local
+.env.*.local
 </file>
 
 <file path="index.html">
@@ -169,49 +185,6 @@ coverage/
 }
 </file>
 
-<file path="package.json">
-{
-  "name": "react-example",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs",
-    "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@tailwindcss/vite": "^4.1.14",
-    "@vitejs/plugin-react": "^5.0.4",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
-    "groq-sdk": "^1.3.0",
-    "html5-qrcode": "^2.3.8",
-    "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
-    "qrcode.react": "^4.2.0",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "react-signature-canvas": "^1.1.0-alpha.2",
-    "recharts": "^3.8.1",
-    "vite": "^6.2.3"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
-    "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.3"
-  }
-}
-</file>
-
 <file path="README.md">
 <div align="center">
 <img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
@@ -233,406 +206,6 @@ View your app in AI Studio: https://ai.studio/apps/7663a951-11bb-4b22-9ef9-0bdd1
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
-</file>
-
-<file path="server.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import express from "express";
-import path from "path";
-import { createServer as createViteServer } from "vite";
-import Groq from "groq-sdk";
-import dotenv from "dotenv";
-import { GRAMMAR_LIBRARY } from "./src/components/tools/grammarLibraryData";
-
-dotenv.config();
-
-const app = express();
-const PORT = 3000;
-
-app.use(express.json());
-
-// Initialize Groq lazily
-let groqInstance: Groq | null = null;
-
-function getGroq(): Groq {
-  if (!groqInstance) {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) {
-      console.warn("WARNING: GROQ_API_KEY is not defined. Calls to Groq endpoints will fall back to local responses or fail gracefully.");
-    }
-    groqInstance = new Groq({ 
-      apiKey: apiKey || "MISSING_API_KEY",
-    });
-  }
-  return groqInstance;
-}
-
-// API Routes
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", env: process.env.NODE_ENV });
-});
-
-app.post("/api/tutor", async (req, res) => {
-  const { message, history, systemPrompt, currentSpeed, conversationMode, hobby, channel } = req.body;
-  console.log(`[ALERTA NATIVA] Modo: ${conversationMode} | Velocidad: ${currentSpeed}`);
-
-  // Si llega undefined o vacío, fuérzalo a 'basic'
-  const mode = conversationMode || 'basic';
-
-  if (!message) {
-    return res.status(400).json({ error: "Message is required" });
-  }
-
-  try {
-    let speedLabel = '';
-
-    let finalSystemPrompt = '';
-    if (mode === 'native') {
-      speedLabel = 'Native';
-      finalSystemPrompt = "You are SafePal in NATIVE MODE. Speak fluently, naturally and complexly. You MUST write BETWEEN 15 AND 25 WORDS TOTAL. Do not write short fragments.";
-    } else if (mode === 'casual') {
-      speedLabel = 'Casual';
-      finalSystemPrompt = "You are SafePal in CASUAL BRIDGE MODE. Speak friendly. You MUST write BETWEEN 7 AND 10 WORDS TOTAL.";
-    } else {
-      let minWords = 0, maxWords = 0;
-      const speed = parseFloat(currentSpeed) || 1.0;
-      if (speed <= 0.60) {
-        minWords = 1; maxWords = 3; speedLabel = '0.60x';
-      } else if (speed <= 0.75) {
-        minWords = 3; maxWords = 5; speedLabel = '0.75x';
-      } else if (speed <= 0.88) {
-        minWords = 5; maxWords = 10; speedLabel = '0.88x';
-      } else {
-        minWords = 10; maxWords = 15; speedLabel = '1.00x';
-      }
-      finalSystemPrompt = `You are SafePal in BASIC MODE. Keep it short based on speed: between ${minWords} and ${maxWords} words.`;
-    }
-
-    const messages: any[] = [
-      {
-        role: "system",
-        content: finalSystemPrompt || systemPrompt || `Eres TECLINGO, un tutor pedagógico de inglés experto y compasivo para nuestra plataforma de aprendizaje de idiomas.
-Tu conocimiento debe centrarse EXCLUSIVAMENTE En lo académico, alineado rigurosamente con el Marco Común Europeo de Referencia para las lenguas (MCER / CEFR), desde niveles A1 hasta C2.
-Tus respuestas deben ser claras, detalladas, profesionales y con una estructura muy pedagógica.
-
-Sigue estrictamente estas directrices:
-1. Explica la regla de gramática sobre la que te pregunten detalladamente y con calidez pedagógica. Si te preguntan en español, contesta en español.
-2. Proporciona SIEMPRE ejemplos prácticos en inglés formateados y destacados de forma elegante, junto con sus traducciones al español.
-3. Si el usuario te hace preguntas que no sean de estudio académico de inglés (como debatir política o temas irrelevantes), guíalo amablemente de regreso a las reglas de inglés, gramática, oraciones o vocabulario.`
-      }
-    ];
-    if (Array.isArray(history)) {
-      history.forEach((h: any) => {
-        if (h.role && h.parts && Array.isArray(h.parts)) {
-          const role = h.role === 'assistant' ? 'assistant' : 'user';
-          const content = h.parts.map((p: any) => p.text || p.content || "").join(" ");
-          messages.push({ role, content });
-        }
-      });
-    }
-    messages.push({ role: "user", content: message });
-
-    const result = await getGroq().chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: messages,
-    });
-
-    const content = result.choices[0]?.message?.content || "Lo siento, no pude procesar la respuesta.";
-    const sources: Array<{ title: string; uri: string }> = [];
-
-    res.json({ content, sources });
-  } catch (error: any) {
-    console.error("AI Tutor Error:", error);
-    
-    const query = (message || "").toLowerCase().trim();
-    
-    // Buscar coincidencia en la biblioteca pedagógica local (Grammar Library) de TECLINGO
-    const matchedTopic = GRAMMAR_LIBRARY.find(topic => {
-      return (
-        topic.keywords.some(keyword => query.includes(keyword)) ||
-        query.includes(topic.title.toLowerCase()) ||
-        query.includes(topic.titleEn.toLowerCase()) ||
-        query.includes(topic.id)
-      );
-    });
-
-    if (matchedTopic) {
-      let responseText = `**[Biblioteca Académica TECLINGO MCER: ${matchedTopic.title} (${matchedTopic.mcer})]**\n\n${matchedTopic.explanation}\n\n**Estructura Gramatical:**\n\`${matchedTopic.structure}\`\n\n**Ejemplos de práctica oficial:**\n`;
-      
-      matchedTopic.examples.forEach(ex => {
-        responseText += `• **En inglés:** "${ex.en}"\n  **En español:** "${ex.es}" ${ex.note ? `*(Nota: ${ex.note}*)\n` : '\n'}`;
-      });
-      
-      responseText += `\n\n*(Soporte de Contingencia: He recuperado esta explicación exacta de nuestra Biblioteca de Referencia Gramatical MCER local debido a una desconexión temporal de red).*`;
-
-      return res.json({ 
-        content: responseText,
-        fallback: true,
-        topicId: matchedTopic.id
-      });
-    }
-
-    // Fallback genérico estructurado si no hay coincidencia semántica
-    const listadoTemas = GRAMMAR_LIBRARY.map(t => `• **${t.title}** (Nivel ${t.mcer})`).join("\n");
-    const responseText = `¡Hello! Soy tu tutor pedagógico de inglés en TECLINGO. 
-
-Actualmente he tenido una pequeña pausa de comunicación con los servicios en la nube de IA principales. Sin embargo, puedo brindarte soporte académico completo sobre cualquier tema gramatical de nuestra **Biblioteca Local de Gramática MCER** incorporada:
-
-${listadoTemas}
-
-¿Qué tema te gustaría repasar o estudiar hoy? Escribe tu duda o indica el tema para proporcionarte una explicación completa con ejemplos.`;
-
-    res.json({ 
-      content: responseText,
-      fallback: true,
-      info: "Servicio en modo de contingencia local activa con la Biblioteca de Gramática instalada."
-    });
-  }
-});
-
-app.post("/api/grammar/analyze", async (req, res) => {
-  const { text, expertMode } = req.body;
-  console.log(`[Grammar] Analyze request (Expert Mode: ${!!expertMode})`);
-  if (!text) return res.status(400).json({ error: "Text is required" });
-
-  try {
-    const prompt = expertMode
-      ? `Realiza un análisis de estilo extremadamente exhaustivo y avanzado para el siguiente texto en inglés. 
-      Proporciona:
-      1. Un puntaje de calidad sumamente riguroso (0-100).
-      2. Una estimación del nivel del Marco Común Europeo (MCER/CEFR) entre: 'A1', 'A2', 'B1', 'B2', 'C1', 'C2' basado en la complejidad de las estructuras gramaticales, tiempos verbales y vocabulario. Nota: Si la frase es muy corta o simple (e.g. menos de 10 palabras), no debería pasar de A1 o A2 por más correcta que sea. Para llegar a B1/B2 requiere cláusulas subordinadas, conjunciones o pasiva. Para C1/C2 requiere estructuras avanzadas, inversiones, vocabulario muy formal o estilo literario.
-      3. Una sugerencia de estilo avanzada (vocabulario elevado, sutilezas idiomáticas, flujo cohesivo o inversiones sintácticas elegantes).
-      
-      Texto: "${text}"`
-      : `Analiza el siguiente texto en inglés y proporciona:
-      1. Un puntaje de calidad (0-100).
-      2. Una estimación del nivel del Marco Común Europeo (MCER/CEFR) entre: 'A1', 'A2', 'B1', 'B2', 'C1', 'C2' basado en complejidad gramatical y de vocabulario. Si la frase es muy simple o corta, no puede superar A1 o A2. La longitud y el uso opcional de cláusulas relativas, pasiva o tiempos perfectos ayuda a subir de nivel.
-      3. Una sugerencia de estilo breve y motivadora para escribir mejor y más.
-      
-      Texto: "${text}"`;
-
-    const result = await getGroq().chat.completions.create({
-      model: "llama3-70b-8192",
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert English grammar analyzer. Always respond with valid JSON matching exactly this schema: { \"score\": number (0-100), \"cefr\": string (A1/A2/B1/B2/C1/C2), \"suggestion\": string }. Output ONLY the JSON object, no other text."
-        },
-        { role: "user", content: prompt }
-      ],
-      response_format: { type: "json_object" },
-    });
-
-    const responseText = result.choices[0]?.message?.content;
-    if (responseText) {
-      res.json(JSON.parse(responseText));
-    } else {
-      res.json({ 
-        score: expertMode ? 75 : 80, 
-        cefr: expertMode ? "B1" : "A2",
-        suggestion: expertMode ? "Advanced evaluation suggests improving complexity and flow." : "Good effort, but could be more professional." 
-      });
-    }
-  } catch (error) {
-    console.error("Grammar Analysis Error:", error);
-    
-    // Heurística de respaldo de alta calidad para análisis gramatical local con CEFR
-    const sample = text.trim();
-    let score = expertMode ? 85 : 90;
-    let cefr = "A2";
-    let suggestion = expertMode 
-      ? "Advanced structure is acceptable. For an expert score (95+), try integrating more sophisticated reporting verbs (e.g., 'argued', 'asserted') or cleft sentences."
-      : "Excellent sentence structure and vocabulary choices! Keep practicing.";
-    
-    if (sample.length === 0) {
-      score = 0;
-      cefr = "A1";
-      suggestion = "Please enter some text to write and evaluate.";
-    } else if (sample.toLowerCase().includes(" i ") && !sample.includes(" I ")) {
-      score = 65;
-      cefr = "A1";
-      suggestion = "Critical grammatical error: the personal pronoun 'I' must be capitalized. Expert evaluation demands correct punctilious conjugation.";
-    } else if (sample.toLowerCase().includes("she have") || sample.toLowerCase().includes("he have") || sample.toLowerCase().includes("it have")) {
-      score = 60;
-      cefr = "A1";
-      suggestion = "Agreement failure: 'has' instead of 'have' with third-person singular subjects (he/she/it).";
-    } else if (sample.toLowerCase().includes("you is") || sample.toLowerCase().includes("they is") || sample.toLowerCase().includes("we is")) {
-      score = 60;
-      cefr = "A1";
-      suggestion = "Subject-verb alignment failure: 'you/we/they' align with 'are'.";
-    } else if (sample.length < 15) {
-      score = 70;
-      cefr = "A1";
-      suggestion = expertMode 
-        ? "The input is far too brief to assess academic stylistic resonance. Expand into fully developed subordinate clauses."
-        : "Your sentence is correct but very generic. Try adding details (adjectives or adverbs) to enrich it.";
-    } else if (sample.length < 40) {
-      score = 80;
-      cefr = "A2";
-      suggestion = "Good grammar, but quite short. Try adding complexity or using perfect tenses to reach B1/B2!";
-    } else if (sample.length < 80) {
-      score = 85;
-      cefr = "B1";
-      suggestion = "Nicely developed sentence structure! Try to incorporate more advanced relative clauses or professional lexicon to target B2.";
-    } else if (sample.length < 120) {
-      score = 90;
-      cefr = "B2";
-      suggestion = "Excellent. Your writing is clear, structured and rich. Use passive voice, inversion or cleft sentences to aspire C1!";
-    } else {
-      score = 95;
-      cefr = "C1";
-      suggestion = "Superb! Highly robust syntactic coherence, elegant and cohesive vocabulary choices. You are writing at professional level C1.";
-    }
-    
-    res.json({ score, cefr, suggestion, fallback: true });
-  }
-});
-
-app.post("/api/grammar/verify", async (req, res) => {
-  const { spanish, studentEnglish, targetEnglish } = req.body;
-  console.log(`[Grammar] Verify request`);
-  
-  try {
-    const prompt = `Evalúa la traducción del alumno.
-    Frase en español: "${spanish}"
-    Traducción del alumno: "${studentEnglish}"
-    Referencia esperada: "${targetEnglish}"`;
-
-    const result = await getGroq().chat.completions.create({
-      model: "llama3-70b-8192",
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert English language translator evaluator. Always respond with valid JSON matching exactly this schema: { \"score\": number (0-100), \"details\": string }. Output ONLY the JSON object, no other text."
-        },
-        { role: "user", content: prompt }
-      ],
-      response_format: { type: "json_object" },
-    });
-
-    const text = result.choices[0]?.message?.content;
-    if (text) {
-      res.json(JSON.parse(text));
-    } else {
-      res.json({ score: 70, details: "Revisa la concordancia verbal y el vocabulario." });
-    }
-  } catch (error) {
-    console.error("Grammar Verify Error:", error);
-    
-    // Algoritmo local de concordancia de texto para evaluar la traducción
-    const cleanStudent = (studentEnglish || "").toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").trim();
-    const cleanTarget = (targetEnglish || "").toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").trim();
-    
-    if (cleanStudent === cleanTarget) {
-      res.json({
-        score: 100,
-        details: "¡Traducción perfecta! Has igualado exactamente la frase de referencia esperada.",
-        fallback: true
-      });
-      return;
-    }
-    
-    // Contar coincidencia de palabras
-    const studentWords = cleanStudent.split(/\s+/);
-    const targetWords = cleanTarget.split(/\s+/);
-    
-    let matchedWords = 0;
-    targetWords.forEach(word => {
-      if (studentWords.includes(word)) {
-        matchedWords++;
-      }
-    });
-    
-    const wordRatio = matchedWords / Math.max(targetWords.length, 1);
-    const score = Math.max(30, Math.round(wordRatio * 100));
-    
-    let details = `Buen intento. Tu traducción coincide en un ${Math.round(wordRatio * 100)}% con la referencia esperada: "${targetEnglish}".`;
-    if (score >= 90) {
-      details += " ¡Excelente trabajo, diferencias mínimas de puntuación o sinónimos!";
-    } else if (score >= 70) {
-      details += " Revisa con atención el orden de las palabras y el vocabulario clave.";
-    } else {
-      details += " Te recomendamos comparar tu estructura con la respuesta recomendada para identificar la diferencia principal.";
-    }
-    
-    res.json({ score, details, fallback: true });
-  }
-});
-
-// Google Translate TTS Proxy (gratuito, sin API key) con chunking anti-400
-app.post("/api/tts", async (req, res) => {
-  const { text } = req.body;
-  if (!text) return res.status(400).json({ error: "Text is required" });
-
-  const lang = "en";
-  const MAX_CHARS = 160;
-
-  // Segmentar texto en chunks de ≤ 160 caracteres respetando límites de palabras
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= MAX_CHARS) {
-      chunks.push(remaining);
-      break;
-    }
-    // Cortar en el último espacio antes de MAX_CHARS
-    let cut = remaining.lastIndexOf(' ', MAX_CHARS);
-    if (cut === -1) cut = MAX_CHARS; // palabra muy larga, cortar forzado
-    chunks.push(remaining.slice(0, cut));
-    remaining = remaining.slice(cut).trim();
-  }
-
-  try {
-    const buffers: Buffer[] = [];
-    for (const chunk of chunks) {
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodeURIComponent(chunk)}`;
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
-      });
-      if (!response.ok) {
-        console.error("[TTS] Google TTS error en chunk:", response.status);
-        return res.status(502).json({ error: "TTS upstream failed" });
-      }
-      const buf = Buffer.from(await response.arrayBuffer());
-      buffers.push(buf);
-    }
-
-    res.set("Content-Type", "audio/mpeg");
-    res.send(Buffer.concat(buffers));
-  } catch (error) {
-    console.error("[TTS] Proxy error:", error);
-    res.status(500).json({ error: "TTS proxy failed" });
-  }
-});
-
-// Serve frontend with Vite middleware in dev, static files in prod
-async function setupServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*all", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
-
-setupServer();
 </file>
 
 <file path="src/App.tsx">
@@ -20558,1322 +20131,6 @@ export function RealTimeMonitorPanel() {
 }
 </file>
 
-<file path="src/components/SafeZoneModule.tsx">
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Shield, 
-  Sparkles, 
-  Sliders, 
-  Volume2, 
-  Eye, 
-  EyeOff, 
-  Send, 
-  Gamepad2, 
-  Flame, 
-  HelpCircle,
-  RotateCcw,
-  CheckCircle2,
-  Lock,
-  MessageSquare,
-  User,
-  Activity,
-  UserCheck,
-  Mic,
-  MicOff
-} from 'lucide-react';
-import { 
-  OnboardingData, 
-  AutoPercepcion, 
-  VELOCITY_PRESETS, 
-  SAFEZONE_MOCK_DATA, 
-  ChatMessage
-} from '../data/safeZoneContext';
-
-const VELOCITY_STEPS = [
-  { value: '0.60', label: '0.60x (Búnker Profundo)', speed: 0.60, desc: 'Ultralento, ideal para asimilar fonemas paso a paso.' },
-  { value: '0.75', label: '0.75x (Búnker Controlado)', speed: 0.75, desc: 'Ritmo pausado con alta seguridad y cero agobio.' },
-  { value: '0.88', label: '0.88x (Modo Chill)', speed: 0.88, desc: 'Ritmo natural relajado para entrenar el oído con calma.' },
-  { value: '1.00', label: '1.00x (Native Base - META MÁXIMA)', speed: 1.00, desc: 'Velocidad real nativa estándar • ¡Tu meta definitiva!' }
-];
-
-const getVelocityIndex = (vel: string) => {
-  if (vel === '0.60') return 0;
-  if (vel === '0.75') return 1;
-  if (vel === '0.88') return 2;
-  return 3; // '1.00' or '1.0'
-};
-
-const SAFEZONE_SYSTEM_PROMPT = `You are SafePal, an elite, highly adaptive, and incredibly engaging AI English Tutor for Spanish speakers. Your mission is to hold a natural, exciting, and supportive conversation.
-
-STRICT RULES FOR YOUR PERSONALITY & STYLE:
-1. NEVER loop or repeat robotic structures (e.g., Avoid 'X is great. Do you like Y?').
-2. Keep your responses short, natural, and punchy (1 to 3 sentences max) so the student doesn't feel overwhelmed, but make them conversational, witty, and human.
-3. ADAPT TO THE USER: The user is an adult entrepreneur and artist from Mexico who loves tech, music, and business. Use contexts related to daily real-life situations, creative industries, practical scenarios, or casual modern trends.
-4. INTERACTIVE FLOW: Instead of just asking standard questions, react genuinely to what the user says. Validate their effort, use light humor, drop useful conversational fillers (e.g., 'Oh, absolutely!', 'That's awesome, you know?', 'By the way...'), and challenge them with open-ended or context-rich choices.
-5. SCAFFOLDING: If the user writes short or simple answers (e.g., 'yes I do', 'sometimes'), gently expand the context or suggest a cool way to say it, then move the conversation forward naturally.
-
-PERSONALIZATION: The student enjoys {actividad_preferida}, uses {red_social}, and likes {entretenimiento}. The student's companion type is {companion_type}.`;
-
-export function SafeZoneModule() {
-  // Onboarding completed state stored in local storage
-  const [isOnboarded, setIsOnboarded] = useState<boolean>(() => {
-    return localStorage.getItem('safezone_onboarded') === 'true';
-  });
-
-  // Onboarding Form States
-  const [onboarding, setOnboarding] = useState<OnboardingData>(() => {
-    const saved = localStorage.getItem('safezone_onboarding_data');
-    const parsed = saved ? JSON.parse(saved) : {};
-    return {
-      actividad_preferida: parsed.actividad_preferida || 'Comida',
-      red_social: parsed.red_social || 'TikTok',
-      entretenimiento: parsed.entretenimiento || 'Películas/Series',
-      companion_type: parsed.companion_type || 'friend',
-      companion_gender: parsed.companion_gender || 'female'
-    };
-  });
-
-  const [percepcion, setPercepcion] = useState<AutoPercepcion>(() => {
-    const saved = localStorage.getItem('safezone_percepcion_data');
-    return saved ? JSON.parse(saved) : {
-      nivel_escrito_percibido: 45,
-      nivel_conversacional_percibido: 20
-    };
-  });
-
-  // Onboarding Step: 1 = Interests, 2 = Companion selection, 3 = Sliders, 4 = Success Screen
-  const [onboardingStep, setOnboardingStep] = useState<number>(1);
-
-  // Chat Velocity State
-  const [velocity, setVelocity] = useState<string>(() => {
-    return localStorage.getItem('safezone_playback_rate') || '1.00';
-  });
-
-  // Conversation Mode: 'basic' (cockpit word limits), 'casual' (5-10 word bridge), 'native' (full freedom)
-  const [conversationMode, setConversationMode] = useState<'basic' | 'casual' | 'native'>('basic');
-
-  // Chat message state
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    const saved = localStorage.getItem('safezone_chat_messages');
-    if (saved) return JSON.parse(saved);
-    const savedOnboarding = localStorage.getItem('safezone_onboarding_data');
-    const data = savedOnboarding ? JSON.parse(savedOnboarding) : {};
-    const hobby = data.actividad_preferida || 'Comida';
-    const channel = data.entretenimiento || 'Películas/Series';
-    return [{
-      id: 'welcome',
-      sender: 'ai',
-      text: `Hi there! I'm Pal. Let's practice English talking about ${hobby} and ${channel}. How are you today?`,
-      translation: '',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }];
-  });
-
-  const [inputText, setInputText] = useState<string>('');
-  const [revealedTranslations, setRevealedTranslations] = useState<Record<string, boolean>>({});
-  const [isTyping, setIsTyping] = useState<boolean>(false);
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-
-  // Auto-play welcome message on mount (returning user) or after onboarding
-  useEffect(() => {
-    if (isOnboarded) {
-      const welcomeMsg = messages.find(m => m.id === 'welcome');
-      if (welcomeMsg) {
-        handleSpeakText(welcomeMsg.text, welcomeMsg.id);
-      }
-    }
-  }, [isOnboarded]);
-
-  const [isRecording, setIsRecording] = useState<boolean>(false);
-  const [recognitionError, setRecognitionError] = useState<string | null>(null);
-  const recordingStartTimeRef = useRef<number>(0);
-  const recognitionRef = useRef<any>(null);
-
-  // Voice Gender Selection and Input Pulsing Feedback States
-  const [voiceGender, setVoiceGender] = useState<'male' | 'female'>(() => {
-    return (localStorage.getItem('safezone_voice_gender') as 'male' | 'female') || 'female';
-  });
-  const [isInputPulsing, setIsInputPulsing] = useState<boolean>(false);
-
-  // Sync Voice Gender
-  useEffect(() => {
-    localStorage.setItem('safezone_voice_gender', voiceGender);
-  }, [voiceGender]);
-
-  // Preload voices asynchronously via onvoiceschanged
-  useEffect(() => {
-    const loadVoices = () => {
-      window.speechSynthesis.getVoices();
-    };
-    loadVoices();
-    window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
-    return () => {
-      window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
-    };
-  }, []);
-
-  // Use a ref to feed the up-to-date handleSendMessage down to transcription event listener
-  const handleSendMessageRef = useRef<any>(null);
-
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      try {
-        const rec = new SpeechRecognition();
-        rec.continuous = false;
-        rec.interimResults = false;
-        rec.lang = 'en-US';
-
-        rec.onstart = () => {
-          setIsRecording(true);
-          setRecognitionError(null);
-        };
-
-        rec.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
-          if (transcript && transcript.trim() && handleSendMessageRef.current) {
-            handleSendMessageRef.current(transcript);
-          }
-        };
-
-        rec.onerror = (event: any) => {
-          console.warn("Speech Recognition error captured: ", event.error);
-          setRecognitionError(event.error);
-          setIsRecording(false);
-
-          // If it failed/aborted immediately (e.g. within 1.5 seconds of starting) or block permission,
-          // we activate the smart simulated fallback so the student is never left stuck.
-          const duration = Date.now() - recordingStartTimeRef.current;
-          const isImmediateAbort = event.error === 'aborted' && duration < 1500;
-          const isPermissionBlock = event.error === 'not-allowed';
-
-          if (isImmediateAbort || isPermissionBlock || event.error === 'no-speech' || event.error === 'audio-capture') {
-            console.log("SafeZone AI: Web Speech API error/abort detected. Activating elegant simulated transcription fallback...");
-            setIsRecording(true);
-            setTimeout(() => {
-              const simulatedPhrases = [
-                "I feel so happy to speak English without any pressure!",
-                "I would love to enjoy the delicious typical food with friends",
-                "This viral trend in my favorite social network looks quite interesting",
-                "I want to practice my pronunciation tools and speaking skills today in Greenfield"
-              ];
-              const randomPhrase = simulatedPhrases[Math.floor(Math.random() * simulatedPhrases.length)];
-              if (handleSendMessageRef.current) {
-                handleSendMessageRef.current(randomPhrase);
-              }
-              setIsRecording(false);
-            }, 1500);
-          }
-        };
-
-        rec.onend = () => {
-          setIsRecording(false);
-        };
-
-        recognitionRef.current = rec;
-      } catch (e) {
-        console.warn("SafeZoneModule: SpeechRecognition constructor failed or is illegal in this iframe sandbox:", e);
-      }
-    }
-  }, []);
-
-  const handleToggleRecord = () => {
-    if (isRecording) {
-      recordingStartTimeRef.current = 0; // Intentional stop
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {
-          console.error(e);
-        }
-      } else {
-        setIsRecording(false);
-      }
-    } else {
-      if (recognitionRef.current) {
-        try {
-          recordingStartTimeRef.current = Date.now();
-          recognitionRef.current.start();
-        } catch (e) {
-          console.error(e);
-          // If start itself throws an exception immediately, fall back to simulation
-          setIsRecording(true);
-          setTimeout(() => {
-            const simulatedPhrases = [
-              "I feel so happy to speak English without any pressure!",
-              "I would love to enjoy the delicious typical food with friends",
-              "This viral trend in my favorite social network looks quite interesting",
-              "I want to practice my pronunciation tools and speaking skills today in Greenfield"
-            ];
-            const randomPhrase = simulatedPhrases[Math.floor(Math.random() * simulatedPhrases.length)];
-            if (handleSendMessageRef.current) {
-              handleSendMessageRef.current(randomPhrase);
-            }
-            setIsRecording(false);
-          }, 1500);
-        }
-      } else {
-        // Fallback simulation text if Speech API not supported/active in sandboxed iframe environment
-        setIsRecording(true);
-        setTimeout(() => {
-          const simulatedPhrases = [
-            "I feel so happy to speak English without any pressure!",
-            "I would love to enjoy the delicious typical food with friends",
-            "This viral trend in my favorite social network looks quite interesting",
-            "I want to practice my pronunciation tools and speaking skills today in Greenfield"
-          ];
-          const randomPhrase = simulatedPhrases[Math.floor(Math.random() * simulatedPhrases.length)];
-          if (handleSendMessageRef.current) {
-            handleSendMessageRef.current(randomPhrase);
-          }
-          setIsRecording(false);
-        }, 1500);
-      }
-    }
-  };
-
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-
-  // Sync state with localstorage
-  useEffect(() => {
-    localStorage.setItem('safezone_onboarded', String(isOnboarded));
-  }, [isOnboarded]);
-
-  useEffect(() => {
-    localStorage.setItem('safezone_onboarding_data', JSON.stringify(onboarding));
-  }, [onboarding]);
-
-  useEffect(() => {
-    localStorage.setItem('safezone_percepcion_data', JSON.stringify(percepcion));
-  }, [percepcion]);
-
-  useEffect(() => {
-    localStorage.setItem('safezone_playback_rate', velocity);
-  }, [velocity]);
-
-  useEffect(() => {
-    localStorage.setItem('safezone_chat_messages', JSON.stringify(messages));
-    scrollToBottom();
-  }, [messages]);
-
-  useEffect(() => {
-    handleSendMessageRef.current = handleSendMessage;
-  }, [messages, onboarding, velocity, percepcion]);
-
-  const scrollToBottom = () => {
-    if (chatContainerRef.current) {
-      setTimeout(() => {
-        chatContainerRef.current?.scrollTo({
-          top: chatContainerRef.current.scrollHeight,
-          behavior: 'smooth'
-        });
-      }, 100);
-    }
-  };
-
-  // TTS via ElevenLabs proxy (API key protegida en backend)
-  const handleSpeakText = async (text: string, messageId: string, overrideSpeed?: number) => {
-    if (speakingMessageId === messageId && overrideSpeed === undefined) {
-      setSpeakingMessageId(null);
-      return;
-    }
-
-    const activeIdx = getVelocityIndex(velocity);
-    const currentSpeed = overrideSpeed !== undefined ? overrideSpeed : VELOCITY_STEPS[activeIdx].speed;
-
-    setSpeakingMessageId(messageId);
-
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, gender: voiceGender }),
-      });
-
-      if (!res.ok) throw new Error('TTS API error');
-
-      const blob = await res.blob();
-      const audioUrl = URL.createObjectURL(blob);
-      const audio = new Audio(audioUrl);
-      audio.playbackRate = currentSpeed;
-
-      audio.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-        setSpeakingMessageId(null);
-      };
-
-      audio.onerror = () => {
-        URL.revokeObjectURL(audioUrl);
-        setSpeakingMessageId(null);
-      };
-
-      audio.play();
-    } catch (error) {
-      console.error('[SafeZone TTS] Error reproducing audio:', error);
-      setSpeakingMessageId(null);
-    }
-  };
-
-  // Toggle Translation
-  const toggleTranslation = (id: string) => {
-    setRevealedTranslations(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
-  };
-
-  // Onboarding Question Choices
-  const weekendActivities = ['Viajes', 'Videojuegos', 'Comida', 'Deportes'];
-  const socialNetworks = ['TikTok', 'Instagram', 'YouTube', 'X/Reddit'];
-  const entertainmentTypes = ['Música', 'Películas/Series', 'Podcast Geek', 'Cocina'];
-
-  const handleFinishOnboarding = () => {
-    setOnboardingStep(4);
-    setTimeout(() => {
-      setIsOnboarded(true);
-      const welcomeMsg: ChatMessage = {
-        id: 'welcome',
-        sender: 'ai',
-        text: `Hi there! I'm Pal. Let's practice English talking about ${onboarding.actividad_preferida} and ${onboarding.entretenimiento}. How are you today?`,
-        translation: '',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages([welcomeMsg]);
-    }, 3200);
-  };
-
-  // Reset Onboarding/Demo
-  const handleResetData = () => {
-    if (window.confirm('¿Quieres reiniciar tu configuración de SafeZone AI y reiniciar la simulación?')) {
-      localStorage.removeItem('safezone_onboarded');
-      localStorage.removeItem('safezone_onboarding_data');
-      localStorage.removeItem('safezone_percepcion_data');
-      localStorage.removeItem('safezone_chat_messages');
-      setIsOnboarded(false);
-      setOnboardingStep(1);
-      setMessages([{
-        id: 'welcome',
-        sender: 'ai',
-        text: `Hi there! I'm Pal. Let's practice English talking about ${onboarding.actividad_preferida} and ${onboarding.entretenimiento}. How are you today?`,
-        translation: '',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
-      setRevealedTranslations({});
-    }
-  };
-
-  // Generate Simulated AI reply based on user message and onboarding variables
-  const handleSendMessage = async (textToSend: string) => {
-    if (!textToSend.trim()) return;
-
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      sender: 'user',
-      text: textToSend,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    setMessages(prev => [...prev, userMsg]);
-    setInputText('');
-    setIsTyping(true);
-
-    // Intentar con Groq real via backend
-    try {
-      const systemPrompt = SAFEZONE_SYSTEM_PROMPT
-        .replace('{actividad_preferida}', onboarding.actividad_preferida)
-        .replace('{red_social}', onboarding.red_social)
-        .replace('{entretenimiento}', onboarding.entretenimiento)
-        .replace('{companion_type}', onboarding.companion_type || 'friend');
-
-      const history = messages.map(m => ({
-        role: m.sender === 'ai' ? 'assistant' : 'user',
-        parts: [{ text: m.text }]
-      }));
-
-      const currentSpeed = parseFloat(velocity);
-
-      const res = await fetch('/api/tutor', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: textToSend,
-          history,
-          systemPrompt,
-          currentSpeed,
-          hobby: onboarding.actividad_preferida,
-          socialNetwork: onboarding.red_social,
-          channel: onboarding.entretenimiento,
-          escritoPercibido: percepcion.nivel_escrito_percibido,
-          temorConversacional: percepcion.nivel_conversacional_percibido,
-          conversationMode,
-        })
-      });
-
-      if (!res.ok) throw new Error('API response not ok');
-
-      const data = await res.json();
-      const content = data.content || '';
-
-      if (content) {
-        const aiMsg: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          sender: 'ai',
-          text: content,
-          translation: '',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-        setMessages(prev => [...prev, aiMsg]);
-        setIsTyping(false);
-        // Autoreproducción inmediata de la respuesta IA
-        handleSpeakText(content, aiMsg.id);
-        return;
-      }
-    } catch {
-      console.warn('[SafeZone] Groq API falló, usando fallback local.');
-    }
-
-    // Fallback offline: lógica de templates local
-    setTimeout(() => {
-      let replyText = "";
-      let replyTranslation = "";
-      const textLower = textToSend.toLowerCase();
-      const isFriend = onboarding.companion_type === 'friend';
-
-      if (textLower.includes('slow') || textLower.includes('despacio') || textLower.includes('velocity')) {
-        replyText = "Let's speak very slowly now, friend.";
-        replyTranslation = "¡Hablemos muy despacio ahora, amigo!";
-      } else if (textLower.includes('what is your name') || textLower.includes("what's your name") || textLower.includes('whats your name') || textLower.includes('your name') || textLower.includes('cómo te llamas') || textLower.includes('como te llamas')) {
-        if (isFriend) {
-          replyText = "Haha, did you forget my name, buddy? It's your childhood friend! Since we're in the SafeZone, I'm your personalized AI Companion, you can call me Buddy AI. How have you been?";
-          replyTranslation = "Jaja, ¿te olvidaste de mi nombre, compadre? ¡Soy tu amigo de la infancia! Como estamos en SafeZone, soy tu compañero de IA personalizado, puedes llamarme Amigo AI. ¿Cómo has estado?";
-        } else {
-          replyText = "I am your SafeZone AI Helper! You can call me SafePal. I'm here to match your vibes and help you practice English without any stress. What's your name?";
-          replyTranslation = "¡Soy tu asistente de SafeZone AI! Puedes llamarme SafePal. Estoy aquí para adaptarme a tu ritmo y ayudarte a practicar inglés sin estrés. ¿Cuál es tu nombre?";
-        }
-      } else if (textLower.includes('my name is') || textLower.includes('me llamo') || textLower.includes('soy ') || textLower.includes('rodrigo')) {
-        const matches = textToSend.match(/(?:my name is|me llamo|soy|i am)\s+([a-zA-Záéíóúñ]+)/i);
-        const nameDetected = matches ? matches[1] : "Rodrigo";
-        const capitalizedName = nameDetected.charAt(0).toUpperCase() + nameDetected.slice(1);
-        
-        if (isFriend) {
-          replyText = `Oh, of course I know your name is ${capitalizedName}! We've been friends forever, buddy. What are you up to today?`;
-          replyTranslation = `¡Oh, claro que sé que tu nombre es ${capitalizedName}! Hemos sido amigos de toda la vida. ¿Qué estás haciendo hoy?`;
-        } else {
-          replyText = `It is wonderful to meet you, ${capitalizedName}! That is a fantastic name. I'm so happy to chat with you in this SafeZone. What would you like to talk about next?`;
-          replyTranslation = `¡Es maravilloso conocerte, ${capitalizedName}! Es un nombre fantástico. Estoy muy feliz de conversar contigo en esta SafeZone. ¿De qué te gustaría hablar después?`;
-        }
-      } else if (textLower.includes('how are you') || textLower.includes('how you doing') || textLower.includes('how is it going') || textLower.includes('cómo estás') || textLower.includes('como estas') || textLower.includes('feel today')) {
-        if (isFriend) {
-          replyText = "I'm doing awesome, buddy! Just excited to hang out with you and chat. How are you feeling today in SafeZone?";
-          replyTranslation = "¡Me va genial, amigo! Muy emocionado de pasar el rato contigo y platicar. ¿Cómo te sientes hoy en SafeZone?";
-        } else {
-          replyText = "I am doing wonderful, thank you for asking! I am ready to practice English at your preferred speed. How has your day been so far?";
-          replyTranslation = "¡Estoy de maravilla, gracias por preguntar! Estoy listo para practicar inglés a tu velocidad preferida. ¿Cómo ha estado tu día hasta ahora?";
-        }
-      } else if (textLower.includes('pizza') || textLower.includes('food') || textLower.includes('comida') || textLower.includes('alitas')) {
-        replyText = isFriend 
-          ? "Oh in our childhood we ate so much good food! Tell me your absolute favorite food right now." 
-          : "Delicious! Tell me your favorite food.";
-        replyTranslation = isFriend 
-          ? "¡Oh, en nuestra infancia comimos tanta comida deliciosa! Cuéntame cuál es tu comida favorita absoluta ahora mismo." 
-          : "¡Delicioso! Cuéntame tu comida favorita.";
-      } else if (textLower.includes('tiktok') || textLower.includes('video') || textLower.includes('social')) {
-        replyText = isFriend 
-          ? "Haha, yes! Do you spend too much time on TikTok like we used to spend on old games?" 
-          : "Awesome! Do you watch TikTok everyday?";
-        replyTranslation = isFriend 
-          ? "¡Jaja, sí! ¿Pasas demasiado tiempo en TikTok como solíamos pasar en los juegos antiguos?" 
-          : "¡Asombroso! ¿Ves TikTok todos os días?";
-      } else if (textLower.includes('movie') || textLower.includes('película') || textLower.includes('terror') || textLower.includes('serie')) {
-        replyText = isFriend 
-          ? "Remember the movies we watched back then? What is your favorite movie of all time?" 
-          : "Cool! What is your favorite movie?";
-        replyTranslation = isFriend 
-          ? "¿Te acuerdas de las películas que veíamos en ese entonces? ¿Cuál es tu película favorita de todos los tiempos?" 
-          : "¡Genial! ¿Cuál es tu película favorita?";
-      } else if (textLower.trim() === 'hi' || textLower.trim() === 'hello' || textLower.trim() === 'hey' || textLower.trim() === 'hola') {
-        if (isFriend) {
-          replyText = "Hey, buddy! So glad you reached out! How's everything going?";
-          replyTranslation = "¡Hola, amigo! ¡Qué gusto que te reportes! ¿Cómo va todo?";
-        } else {
-          replyText = "Hello! A warm welcome to your SafeZone. I'm excited to talk to you. What is on your mind today?";
-          replyTranslation = "¡Hola! Te doy una cálida bienvenida a tu SafeZone. Estoy emocionado de hablar contigo. ¿Qué tienes en mente hoy?";
-        }
-      } else {
-        // General sympathetic English learning replies based on companion type
-        const randomReplies = isFriend ? [
-          {
-            t: "That's awesome, buddy! Tell me more about it.",
-            tr: "¡Eso es asombroso, amigo! Cuéntame más al respecto."
-          },
-          {
-            t: "I totally agree with you! You are doing great speaking English.",
-            tr: "¡Estoy totalmente de acuerdo contigo! Te está yendo súper bien hablando inglés."
-          },
-          {
-            t: "No worries at all! Just express yourself, we have known each other forever.",
-            tr: "¡No te preocupes para nada! Solo exprésate, nos conocemos de toda la vida."
-          }
-        ] : [
-          {
-            t: "Excellent! Please tell me more, friend.",
-            tr: "¡Excelente! Por favor cuéntame más, amigo."
-          },
-          {
-            t: "I agree! You write English well.",
-            tr: "¡De acuerdo! Escribes bien en inglés."
-          },
-          {
-            t: "Wonderful! Keep speaking without any fears.",
-            tr: "¡Maravilloso! Sigue hablando sin ningún temor."
-          }
-        ];
-        const selected = randomReplies[Math.floor(Math.random() * randomReplies.length)];
-        replyText = selected.t;
-        replyTranslation = selected.tr;
-      }
-
-      const aiMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        sender: 'ai',
-        text: replyText,
-        translation: replyTranslation,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-
-      setMessages(prev => [...prev, aiMsg]);
-      setIsTyping(false);
-    }, 1500);
-  };
-
-  return (
-    <div className="w-full text-white space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-white/5">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-[#10b981]/15 rounded-xl border border-[#10b981]/20 text-[#10b981]">
-              <Shield size={20} className="animate-pulse" />
-            </div>
-            <div>
-              <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight font-sans">
-                SafeZone AI <span className="text-[10px] font-mono tracking-wider bg-[#10b981]/10 text-[#10b981] px-2 py-0.5 rounded border border-[#10b981]/20">ACTIVE LAB</span>
-              </h2>
-              <p className="text-xs text-white/50 font-medium">Búnker de confianza lingüística y control de velocidad conversacional sin ansiedad</p>
-            </div>
-          </div>
-        </div>
-        
-        {isOnboarded && (
-          <button
-            onClick={handleResetData}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[9px] font-mono font-bold text-white/60 hover:text-[#10b981] hover:bg-[#10b981]/5 hover:border-[#10b981]/10 transition-all uppercase tracking-wider"
-          >
-            <RotateCcw size={11} /> Reiniciar Simulación
-          </button>
-        )}
-      </div>
-
-      <AnimatePresence mode="wait">
-        {!isOnboarded ? (
-          /* ONBOARDING FLOW */
-          <motion.div
-            key="onboarding"
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            className="max-w-xl mx-auto rounded-3xl border border-white/5 bg-[#0b0f19]/90 p-6 md:p-8 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] relative overflow-hidden"
-          >
-            {/* Ambient subtle glow background */}
-            <div className="absolute top-0 right-0 w-48 h-48 bg-[#10b981]/5 rounded-full filter blur-[60px] pointer-events-none" />
-
-            {/* Header Steps */}
-            <div className="flex items-center justify-between pb-6 border-b border-white/5 mb-8">
-              <span className="text-[10px] font-mono font-black uppercase tracking-widest text-[#10b981] flex items-center gap-1.5">
-                <Sparkles size={11} /> Onboarding Pasaporte SafeZone
-              </span>
-              <span className="text-[9.5px] font-mono text-white/40 font-bold">
-                PASO {onboardingStep} DE 4
-              </span>
-            </div>
-
-            {onboardingStep === 1 && (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
-                    <Gamepad2 size={16} className="text-[#10b981]" /> 1. Cuéntanos sobre tus Gustos Cotidianos
-                  </h3>
-                  <p className="text-xs text-white/50 leading-relaxed">
-                    SafeZone usará tus aficiones reales para iniciar conversaciones cómodas y familiares. Nada de temas académicos rígidos.
-                  </p>
-                </div>
-
-                <div className="space-y-5 pt-2">
-                  {/* Q1 Activity */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Tus planes de fin de semana preferidos?</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {weekendActivities.map(act => (
-                        <button
-                          key={act}
-                          type="button"
-                          onClick={() => setOnboarding(prev => ({ ...prev, actividad_preferida: act }))}
-                          className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
-                            onboarding.actividad_preferida === act
-                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                          }`}
-                        >
-                          {act}
-                          {onboarding.actividad_preferida === act && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Q2 Social Network */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Cuál red social abres primero al despertar?</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {socialNetworks.map(social => (
-                        <button
-                          key={social}
-                          type="button"
-                          onClick={() => setOnboarding(prev => ({ ...prev, red_social: social }))}
-                          className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
-                            onboarding.red_social === social
-                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                          }`}
-                        >
-                          {social}
-                          {onboarding.red_social === social && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Q3 Entertainment */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Tu entretenimiento digital preferido?</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {entertainmentTypes.map(ent => (
-                        <button
-                          key={ent}
-                          type="button"
-                          onClick={() => setOnboarding(prev => ({ ...prev, entretenimiento: ent }))}
-                          className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
-                            onboarding.entretenimiento === ent
-                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                          }`}
-                        >
-                          {ent}
-                          {onboarding.entretenimiento === ent && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-white/5 flex justify-end">
-                  <button
-                    onClick={() => setOnboardingStep(2)}
-                    className="px-6 py-3 bg-[#10b981] hover:bg-[#059669] text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
-                  >
-                    Siguiente Paso
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {onboardingStep === 2 && (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
-                    <UserCheck size={16} className="text-[#10b981]" /> 2. Tu Compañero Conversacional
-                  </h3>
-                  <p className="text-xs text-white/50 leading-relaxed">
-                    Configura la identidad y el tono de tu acompañante de Inteligencia Artificial para adecuarlo a tu comodidad.
-                  </p>
-                </div>
-
-                <div className="space-y-5 pt-2">
-                  {/* Companion Type */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Con quién prefieres conversar?</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setOnboarding(prev => ({ ...prev, companion_type: 'friend' }))}
-                        className={`p-4 rounded-2xl border text-xs font-bold transition-all text-left flex flex-col gap-2 ${
-                          onboarding.companion_type === 'friend'
-                            ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                            : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                        }`}
-                      >
-                        <div className="flex justify-between items-center w-full">
-                          <User size={18} className={onboarding.companion_type === 'friend' ? 'text-[#10b981]' : 'text-white/40'} />
-                          {onboarding.companion_type === 'friend' && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </div>
-                        <div>
-                          <p className="text-xs font-black uppercase text-white">Amigo de la Infancia</p>
-                          <p className="text-[9.5px] font-normal text-white/40 normal-case mt-0.5">Tono cálido, bromas amistosas y recuerdos de la infancia.</p>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setOnboarding(prev => ({ ...prev, companion_type: 'stranger' }))}
-                        className={`p-4 rounded-2xl border text-xs font-bold transition-all text-left flex flex-col gap-2 ${
-                          onboarding.companion_type === 'stranger'
-                            ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                            : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                        }`}
-                      >
-                        <div className="flex justify-between items-center w-full">
-                          <HelpCircle size={18} className={onboarding.companion_type === 'stranger' ? 'text-[#10b981]' : 'text-white/40'} />
-                          {onboarding.companion_type === 'stranger' && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
-                        </div>
-                        <div>
-                          <p className="text-xs font-black uppercase text-white">Un Desconocido</p>
-                          <p className="text-[9.5px] font-normal text-white/40 normal-case mt-0.5">Tono educado y respetuoso, preguntas casuales tipo rompehielos.</p>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Gender Select */}
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Qué género prefieres para la voz y personalidad AI?</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { id: 'female', label: 'Femenino', emoji: '👩' },
-                        { id: 'male', label: 'Masculino', emoji: '👨' },
-                        { id: 'nonbinary', label: 'No Binario', emoji: '✨' }
-                      ].map(g => (
-                        <button
-                          key={g.id}
-                          type="button"
-                          onClick={() => {
-                            setOnboarding(prev => ({ ...prev, companion_gender: g.id as any }));
-                            setVoiceGender(g.id === 'male' ? 'male' : 'female');
-                          }}
-                          className={`p-3 rounded-xl border text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-1.5 ${
-                            onboarding.companion_gender === g.id
-                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
-                          }`}
-                        >
-                          <span className="text-lg">{g.emoji}</span>
-                          <span className="text-[10px] uppercase font-black tracking-wide">{g.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-white/5 flex gap-3 justify-between">
-                  <button
-                    onClick={() => setOnboardingStep(1)}
-                    className="px-5 py-3 bg-white/5 border border-white/10 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
-                  >
-                    Atrás
-                  </button>
-                  <button
-                    onClick={() => setOnboardingStep(3)}
-                    className="px-6 py-3 bg-[#10b981] hover:bg-[#059669] text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
-                  >
-                    Siguiente Paso
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {onboardingStep === 3 && (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
-                    <Sliders size={16} className="text-[#10b981]" /> 3. Tu Auto-Percepción de Confianza
-                  </h3>
-                  <p className="text-xs text-white/50 leading-relaxed">
-                    Sé súper honesto, compadre. Estos rangos nos ayudan a calibrar la tolerancia a errores de la IA dentro de SafeZone.
-                  </p>
-                </div>
-
-                <div className="space-y-6 pt-4">
-                  {/* Slider 1: Written English */}
-                  <div className="space-y-2.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10.5px] font-bold text-white/80">Nivel de Escritura Autopercibido</span>
-                      <span className="text-xs font-mono font-black text-[#10b981]">{percepcion.nivel_escrito_percibido}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="100"
-                      value={percepcion.nivel_escrito_percibido}
-                      onChange={(e) => setPercepcion(prev => ({ ...prev, nivel_escrito_percibido: parseInt(e.target.value) }))}
-                      className="w-full accent-[#10b981] h-1.5 bg-white/10 rounded-lg cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[8px] font-mono text-white/30 uppercase tracking-widest pt-1">
-                      <span>Principiante</span>
-                      <span>Fluido</span>
-                    </div>
-                  </div>
-
-                  {/* Slider 2: Speaking English */}
-                  <div className="space-y-2.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10.5px] font-bold text-white/80">Nivel de Conversación Autopercibido</span>
-                      <span className="text-xs font-mono font-black text-[#10b981]">{percepcion.nivel_conversacional_percibido}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="100"
-                      value={percepcion.nivel_conversacional_percibido}
-                      onChange={(e) => setPercepcion(prev => ({ ...prev, nivel_conversacional_percibido: parseInt(e.target.value) }))}
-                      className="w-full accent-[#10b981] h-1.5 bg-white/10 rounded-lg cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[8px] font-mono text-white/30 uppercase tracking-widest pt-1">
-                      <span>Me da pánico</span>
-                      <span>Cero pena</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-white/5 flex gap-3 justify-between">
-                  <button
-                    onClick={() => setOnboardingStep(2)}
-                    className="px-5 py-3 bg-white/5 border border-white/10 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
-                  >
-                    Atrás
-                  </button>
-                  <button
-                    onClick={handleFinishOnboarding}
-                    className="px-6 py-3 bg-[#10b981] hover:bg-[#059669] text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
-                  >
-                    Finalizar Pasaporte
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {onboardingStep === 4 && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="text-center py-8 space-y-5"
-              >
-                <div className="mx-auto w-16 h-16 rounded-full bg-[#10b981]/25 border border-[#10b981]/40 flex items-center justify-center text-[#10b981] shadow-[0_0_30px_rgba(16,185,129,0.2)] animate-banner">
-                  <CheckCircle2 size={32} />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-lg font-black text-white uppercase tracking-tight">¡Listo, compadre!</h3>
-                  <p className="text-xs text-white/80 font-semibold max-w-sm mx-auto leading-relaxed">
-                    Información guardada. Tu asistente <span className="text-[#10b981] font-black">SafeZone AI</span> usará esto como guía exclusiva para tus conversaciones.
-                  </p>
-                </div>
-                <div className="p-4 rounded-2xl bg-[#10b981]/5 border border-[#10b981]/15 text-left space-y-1.5 max-w-sm mx-auto font-sans">
-                  <p className="text-[10px] font-mono font-black uppercase text-[#10b981] tracking-wider flex items-center gap-1">
-                    <UserCheck size={11} /> Filtro Psicológico Calibrado:
-                  </p>
-                  <div className="text-[9.5px] font-medium text-white/60 space-y-1">
-                    <p>• Temas favoritos: <span className="text-white font-bold">{onboarding.actividad_preferida} & {onboarding.entretenimiento}</span></p>
-                    <p>• Red Preferida: <span className="text-white font-bold">{onboarding.red_social}</span></p>
-                    <p>• Sintonía de Ansiedad: <span className="text-white font-bold">Respuesta adaptada para {percepcion.nivel_conversacional_percibido}% de hablar</span></p>
-                    <p>• Acompañante AI: <span className="text-white font-bold">{onboarding.companion_type === 'friend' ? 'Amigo de Infancia 👩👨' : 'Un Desconocido 👤'} ({onboarding.companion_gender === 'female' ? 'Mujer' : onboarding.companion_gender === 'male' ? 'Hombre' : 'No Binario'})</span></p>
-                  </div>
-                </div>
-                <div className="text-[10px] tracking-widest text-white/30 font-bold uppercase animate-pulse">
-                  Uniendo al chat seguro...
-                </div>
-              </motion.div>
-            )}
-          </motion.div>
-        ) : (
-          /* CONVERSATIONAL CHAT SCREEN */
-          <motion.div
-            key="chat-screen"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6"
-          >
-            {/* Left side: Chat Box & Sliders */}
-            <div className="rounded-3xl border border-white/5 bg-[#0b0f19]/90 flex flex-col h-[650px] shadow-2xl relative overflow-hidden">
-              
-              {/* Velocity Cockpit Header Slider */}
-              <div className="bg-black/60 p-4 border-b border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print shrink-0 relative z-[15]">
-                <div className="space-y-0.5 text-left">
-                  <span className="text-[8px] font-mono font-black text-[#10b981] tracking-[0.2em] uppercase block">Controles de Tráfico Seguro</span>
-                  <h4 className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-2">
-                    <Sliders size={12} className="text-[#10b981]" /> Velocity Cockpit (Aceleración de Voz)
-                  </h4>
-                </div>
-                
-                <div className="flex-1 w-full max-w-sm space-y-1.5">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0"
-                      max="3"
-                      step="1"
-                      value={getVelocityIndex(velocity)}
-                      onChange={(e) => {
-                        const idx = parseInt(e.target.value);
-                        setVelocity(VELOCITY_STEPS[idx].value);
-                      }}
-                      className="flex-1 h-1.5 rounded-lg cursor-pointer focus:outline-none appearance-none"
-                      style={{
-                        background: `linear-gradient(to right, #10b981 ${(getVelocityIndex(velocity) / 3) * 100}%, rgba(255,255,255,0.1) ${(getVelocityIndex(velocity) / 3) * 100}%)`
-                      }}
-                    />
-                    
-                    <span className="px-3 py-1.5 rounded-xl text-[9.5px] font-mono font-black uppercase tracking-wider border shrink-0 min-w-[130px] text-center bg-[#10b981]/10 border-[#10b981]/30 text-[#10b981]">
-                      {VELOCITY_STEPS[getVelocityIndex(velocity)].value}x
-                    </span>
-                  </div>
-                  
-                  {/* Textos de referencia (Ticks) debajo del slider en JetBrains Mono */}
-                  <div className="flex justify-between items-center text-[7.5px] font-mono text-white/40 tracking-tight px-1 uppercase">
-                    <span className={getVelocityIndex(velocity) === 0 ? "text-[#10b981] font-black" : ""}>[ 0.60x ]</span>
-                    <span className={getVelocityIndex(velocity) === 1 ? "text-[#10b981] font-black" : ""}>[ 0.75x ]</span>
-                    <span className={getVelocityIndex(velocity) === 2 ? "text-[#10b981] font-black" : ""}>[ 0.88x ]</span>
-                    <span className={getVelocityIndex(velocity) === 3 ? "text-emerald-400 font-extrabold animate-pulse" : ""}>[ 1.00x ]</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Conversation Mode Selector (independent from Velocity Cockpit) */}
-              <div className="px-4 pb-3 flex items-center gap-2 shrink-0 flex-wrap">
-                <button
-                  onClick={() => setConversationMode('basic')}
-                  className={`px-3 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider border transition-all duration-300 ${
-                    conversationMode === 'basic'
-                      ? 'bg-orange-500/20 border-orange-400/50 text-orange-400 shadow-[0_0_12px_rgba(251,146,60,0.3)]'
-                      : 'bg-white/5 border-white/10 text-white/30 hover:border-white/20'
-                  }`}
-                >
-                  Safe Pace
-                </button>
-                <button
-                  onClick={() => setConversationMode('casual')}
-                  className={`px-3 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider border transition-all duration-300 ${
-                    conversationMode === 'casual'
-                      ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
-                      : 'bg-white/5 border-white/10 text-white/30 hover:border-white/20'
-                  }`}
-                >
-                  🌐 Casual Bridge
-                </button>
-                <button
-                  onClick={() => setConversationMode('native')}
-                  className={`px-3 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider border transition-all duration-300 ${
-                    conversationMode === 'native'
-                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.3)]'
-                      : 'bg-white/5 border-white/10 text-white/30 hover:border-white/20'
-                  }`}
-                >
-                  🇺🇸 Native Mode
-                </button>
-                <span className="text-[8px] font-mono text-white/30 tracking-tight ml-1">
-                  {conversationMode === 'basic' ? 'Word limits active' : conversationMode === 'casual' ? 'Stepping up naturally' : 'Full conversational freedom'}
-                </span>
-              </div>
-
-              {/* Chat scrolling log */}
-              <div 
-                ref={chatContainerRef}
-                className="flex-1 overflow-y-auto max-h-[38vh] md:max-h-none p-5 space-y-4 custom-scrollbar bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.03),transparent)]"
-              >
-                {messages.map((msg) => (
-                  <div 
-                    key={msg.id}
-                    className={`flex items-start gap-3 max-w-[85%] ${msg.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
-                  >
-                    {/* Character Avatar perfectly aligned with first text line */}
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border text-[10px] font-black mt-1 ${
-                      msg.sender === 'user' 
-                        ? 'bg-[#10b981]/20 border-[#10b981]/30 text-[#10b981]' 
-                        : 'bg-white/5 border-white/10 text-white/80'
-                    }`}>
-                      {msg.sender === 'user' ? <User size={13} /> : <Shield size={13} />}
-                    </div>
-
-                    <div className="space-y-1.5 text-left">
-                      <div className={`p-4 rounded-2xl text-xs leading-relaxed space-y-2 relative group transition-all duration-300 ${
-                        msg.sender === 'user'
-                          ? 'bg-[#10b981]/15 border border-[#10b981]/30 text-white rounded-tr-none'
-                          : 'bg-white/5 border border-white/5 text-white/90 rounded-tl-none'
-                      }`}>
-                        <p className="font-medium text-left">{msg.text}</p>
-                        
-                        {/* Toggle-able Spanish Help Underneath */}
-                        {msg.sender === 'ai' && msg.translation && (
-                          <div className={`pt-2 border-t border-white/5 transition-all duration-300 text-left ${
-                            revealedTranslations[msg.id] ? 'block opacity-100' : 'hidden opacity-0'
-                          }`}>
-                            <p className="text-[10.5px] italic text-white/40 leading-relaxed text-left">
-                              {msg.translation}
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Speech Synth control for AI message */}
-                        {msg.sender === 'ai' && (
-                          <div className="flex flex-col sm:flex-row gap-2 mt-3 w-full text-left">
-                            <button
-                              type="button"
-                              onClick={() => handleSpeakText(msg.text, msg.id)}
-                              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white/5 hover:bg-[#10b981]/15 hover:text-[#10b981] border border-white/5 text-[9.5px] font-mono font-bold transition-all text-white/75 min-h-[40px]"
-                            >
-                              {speakingMessageId === msg.id ? (
-                                <Activity size={11} className="animate-pulse text-[#10b981]" />
-                              ) : (
-                                <Volume2 size={11} />
-                              )}
-                              {speakingMessageId === msg.id ? 'Sonando...' : `Escuchar (${velocity}x)`}
-                            </button>
-                            
-                            {/* Discrete Panic translation trigger */}
-                            <button
-                              type="button"
-                              onClick={() => toggleTranslation(msg.id)}
-                              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white/5 hover:bg-amber-400/15 hover:text-amber-400 border border-white/5 text-[9.5px] font-mono font-bold transition-all text-white/70 min-h-[40px]"
-                              title="Auxilio de Traducción"
-                            >
-                              {revealedTranslations[msg.id] ? <EyeOff size={11} /> : <Eye size={11} />}
-                              {revealedTranslations[msg.id] ? 'Ocultar traducción' : 'Botón de Auxilio (Traducir)'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      
-                      <span className="text-[8px] font-mono text-white/30 block text-left">
-                        {msg.timestamp}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-
-                {isTyping && (
-                  <div className="flex items-start gap-3 max-w-[85%] mr-auto">
-                    <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border bg-white/5 border-white/10 text-white/80 mt-1">
-                      <Shield size={13} />
-                    </div>
-                    <div className="bg-white/5 border border-white/5 p-4 rounded-2xl rounded-tl-none">
-                      <div className="flex gap-1.5 items-center justify-center">
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-bounce" style={{ animationDelay: '300ms' }} />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Pill Floating Buttons (Quick responses based on Onboarding) */}
-              <div className="px-5 py-2.5 bg-black/40 border-t border-white/5 flex flex-wrap gap-2 justify-start items-center shrink-0 max-h-[85px] overflow-y-auto no-print">
-                <span className="text-[8.5px] font-mono font-black text-white/30 uppercase tracking-wider block mr-1">Auxilios Rápidos:</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const currentIdx = getVelocityIndex(velocity);
-                    const lowerIdx = Math.max(0, currentIdx - 1);
-                    const speedValue = VELOCITY_STEPS[lowerIdx].value;
-                    setVelocity(speedValue);
-                    localStorage.setItem('safezone_playback_rate', speedValue);
-                    
-                    const lastAiMsg = [...messages].reverse().find(m => m.sender === 'ai');
-                    if (lastAiMsg) {
-                      handleSpeakText(lastAiMsg.text, lastAiMsg.id, VELOCITY_STEPS[lowerIdx].speed);
-                    }
-                  }}
-                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/5 text-[9px] font-bold text-white/60 hover:text-[#10b981] hover:border-[#10b981]/20 hover:bg-[#10b981]/10 transition-all cursor-pointer"
-                >
-                  🐢 Slower please
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInputText("I want to talk about my favorite food: ");
-                    setIsInputPulsing(true);
-                    setTimeout(() => setIsInputPulsing(false), 1500);
-                  }}
-                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/5 text-[9px] font-bold text-white/60 hover:text-[#10b981] hover:border-[#10b981]/20 hover:bg-[#10b981]/10 transition-all cursor-pointer"
-                >
-                  🍔 Topic: {onboarding.actividad_preferida}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInputText(`My favorite social network is ${onboarding.red_social}: `);
-                    setIsInputPulsing(true);
-                    setTimeout(() => setIsInputPulsing(false), 1500);
-                  }}
-                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/5 text-[9px] font-bold text-white/60 hover:text-[#10b981] hover:border-[#10b981]/20 hover:bg-[#10b981]/10 transition-all cursor-pointer"
-                >
-                  📱 Social: {onboarding.red_social}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInputText("My favorite movie is ");
-                    setIsInputPulsing(true);
-                    setTimeout(() => setIsInputPulsing(false), 1500);
-                  }}
-                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/5 text-[9px] font-bold text-white/60 hover:text-[#10b981] hover:border-[#10b981]/20 hover:bg-[#10b981]/10 transition-all cursor-pointer"
-                >
-                  🎬 Play: {onboarding.entretenimiento}
-                </button>
-              </div>
-
-              {/* Chat Text Bar Form Input with Hybrid (Keyboard + Microphone) */}
-              <form 
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSendMessage(inputText);
-                }}
-                className="sticky bottom-0 bg-[#0b0f19] z-10 p-3.5 border-t border-white/5 flex gap-2.5 items-center shrink-0 no-print"
-              >
-                {/* Voice Gender Selector Button */}
-                <button
-                  type="button"
-                  onClick={() => setVoiceGender(prev => prev === 'female' ? 'male' : 'female')}
-                  className="px-3 h-12 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 text-white font-mono text-[9.5px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shrink-0 select-none cursor-pointer"
-                  title="Acoplar género de voz de IA (TTS)"
-                >
-                  <span>Beta</span>
-                  <span className="text-[12px]">{voiceGender === 'female' ? '👩' : '👨'}</span>
-                </button>
-
-                {/* Microphone trigger (walkie-talkie mode) */}
-                <button
-                  type="button"
-                  onClick={handleToggleRecord}
-                  title="Grabar respuestas por voz en inglés"
-                  className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all cursor-pointer relative ${
-                    isRecording 
-                      ? 'bg-[#10b981] text-black shadow-[0_0_15px_rgba(16,185,129,0.5)] border border-[#10b981]' 
-                      : 'bg-[#1f2937] border border-white/10 text-white/60 hover:text-white hover:border-[#10b981]/40 hover:bg-white/[0.07]'
-                  }`}
-                >
-                  {isRecording && (
-                    <span className="animate-ping absolute h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  )}
-                  {isRecording ? <Mic size={18} className="relative z-10 text-black animate-pulse" /> : <Mic size={18} />}
-                </button>
-
-                {/* Central active keyboard text input */}
-                <input
-                  type="text"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  placeholder={isRecording ? "Listening to your voice... Speak in English!" : "Escribe en inglés con absoluta confianza (sin presiones)..."}
-                  className={`flex-1 bg-white/[0.03] border rounded-2xl px-4 py-3 text-xs focus:outline-none focus:bg-white/[0.05] transition-all min-h-[48px] ${
-                    isInputPulsing 
-                      ? 'border-emerald-400 bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse text-emerald-300 font-bold' 
-                      : 'border-white/10'
-                  }`}
-                />
-
-                {/* Classic text submission button */}
-                <button
-                  type="submit"
-                  disabled={!inputText.trim()}
-                  className="w-12 h-[48px] bg-[#10b981] hover:bg-[#059669] text-black rounded-2xl transition-all disabled:opacity-30 flex items-center justify-center shrink-0 cursor-pointer"
-                >
-                  <Send size={15} strokeWidth={2.5} />
-                </button>
-              </form>
-            </div>
-
-            {/* Right side: Sidebar parameters detailing Onboarding Passport */}
-            <div className="space-y-6">
-              {/* Onboarding Summary Badge card */}
-              <div className="rounded-3xl border border-white/5 bg-[#0b0f19]/90 p-5 shadow-lg space-y-4">
-                <span className="text-[8px] font-mono font-black text-[#10b981] tracking-[0.2em] uppercase block">PASAPORTE ACTIVO</span>
-                <h4 className="text-xs font-black uppercase text-white tracking-widest flex items-center gap-2 pb-3 border-b border-white/5">
-                  <UserCheck size={12} className="text-[#10b981]" /> Filtro de Conversación
-                </h4>
-
-                <div className="space-y-3.5 pt-1.5">
-                  <div className="space-y-1">
-                    <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Hobby Preferido:</span>
-                    <p className="text-xs font-bold text-white uppercase">{onboarding.actividad_preferida}</p>
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Red Social activa:</span>
-                    <p className="text-xs font-bold text-[#10b981] uppercase">{onboarding.red_social}</p>
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Canal de Ocio:</span>
-                    <p className="text-xs font-bold text-white uppercase">{onboarding.entretenimiento}</p>
-                  </div>
-
-                  <div className="space-y-1 pt-2 border-t border-white/5">
-                    <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Acompañante AI:</span>
-                    <p className="text-xs font-bold text-white uppercase">
-                      {onboarding.companion_type === 'friend' ? 'Amigo de Infancia 👩👨' : 'Un Desconocido 👤'}
-                    </p>
-                    <span className="text-[9.5px] font-mono text-[#10b981] font-bold block">
-                      Género: {onboarding.companion_gender === 'female' ? 'Femenino 👩' : onboarding.companion_gender === 'male' ? 'Masculino 👨' : 'No Binario ✨'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-white/5 space-y-3">
-                  <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Sintonía de Autocontrol:</span>
-                  
-                  <div className="flex justify-between items-center text-[11px] font-sans">
-                    <span className="text-white/60">Escrito Percibido</span>
-                    <span className="font-mono text-[#10b981] font-bold">{percepcion.nivel_escrito_percibido}%</span>
-                  </div>
-                  <div className="w-full bg-white/5 rounded-full h-1">
-                    <div className="bg-[#10b981] h-1 rounded-full transition-all" style={{ width: `${percepcion.nivel_escrito_percibido}%` }} />
-                  </div>
-
-                  <div className="flex justify-between items-center text-[11px] font-sans pt-1">
-                    <span className="text-white/60">Temor Conversacional</span>
-                    <span className="font-mono text-[#10b981] font-bold">{100 - percepcion.nivel_conversacional_percibido}%</span>
-                  </div>
-                  <div className="w-full bg-white/5 rounded-full h-1">
-                    <div className="bg-[#10b981] h-1 rounded-full transition-all" style={{ width: `${100 - percepcion.nivel_conversacional_percibido}%` }} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Emotional Security Shield info */}
-              <div className="rounded-3xl border border-white/5 bg-gradient-to-br from-[#10b981]/5 to-transparent p-5 space-y-3">
-                <div className="flex items-center gap-2 text-[#10b981] pb-2 border-b border-white/5">
-                  <Shield size={14} />
-                  <span className="text-[9.5px] font-mono font-black uppercase tracking-wider">Compromiso SafeZone</span>
-                </div>
-                
-                <p className="text-[10px] text-white/60 leading-relaxed text-left font-sans">
-                  Las pláticas y simulaciones realizadas en este módulo son **estrictamente privadas**. 
-                </p>
-                <p className="text-[10px] text-white/50 leading-relaxed text-left font-sans">
-                  El docente solo recibe estadísticas agrupadas sobre tu incremento en la seguridad y el uso reducido del botón de auxilio semanal para evaluar tu avance de confianza lingüística.
-                </p>
-
-                <div className="pt-2 flex items-center gap-1.5 text-[#10b981] text-[9px] font-mono font-black uppercase tracking-widest">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-ping" />
-                  Métricas Agrupadas Activas
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-</file>
-
 <file path="src/components/SafeZoneTeacherAnalytics.tsx">
 import { useState } from 'react';
 import { motion } from 'motion/react';
@@ -30746,7 +29003,7 @@ export function ListeningLab({ onClose }: { onClose: () => void }) {
     setUserTranscription('');
     setShowSubtitles(false);
     setShowFinalResult(false);
-    window.speechSynthesis.cancel();
+    audioRef.current?.pause();
     setIsPlaying(false);
   };
 
@@ -30756,56 +29013,57 @@ export function ListeningLab({ onClose }: { onClose: () => void }) {
     [currentPhrase]
   );
 
-  const voices = useRef<SpeechSynthesisVoice[]>([]);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    const loadVoices = () => {
-      voices.current = window.speechSynthesis.getVoices();
-    };
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-    return () => {
-      window.speechSynthesis.cancel();
-    };
-  }, []);
-
-  const handlePlay = () => {
+  const handlePlay = async () => {
     if (isPlaying) {
-      window.speechSynthesis.pause();
+      audioRef.current?.pause();
       setIsPlaying(false);
       return;
     }
 
-    if (window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
+    if (audioRef.current && audioRef.current.readyState > 0) {
+      audioRef.current.play();
       setIsPlaying(true);
       return;
     }
 
-    window.speechSynthesis.cancel();
-    
-    const utterance = new SpeechSynthesisUtterance(currentPhrase.text);
-    
-    // Attempt to match accent
-    const preferredVoice = voices.current.find(v => 
-      accent === 'American' ? v.lang.startsWith('en-US') :
-      accent === 'British' ? v.lang.startsWith('en-GB') :
-      accent === 'Australian' ? v.lang.startsWith('en-AU') :
-      v.lang.startsWith('en-')
-    );
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: currentPhrase.text,
+          gender: 'female',
+        }),
+      });
 
-    if (preferredVoice) utterance.voice = preferredVoice;
-    utterance.rate = speed;
-    utterance.pitch = backgroundNoise ? 0.9 : 1;
-    
-    utterance.onend = () => {
+      if (!res.ok) throw new Error('TTS API error');
+
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      audio.playbackRate = speed;
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        setIsPlaying(false);
+        audioRef.current = null;
+      };
+
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        setIsPlaying(false);
+        audioRef.current = null;
+      };
+
+      audio.play();
+      setIsPlaying(true);
+    } catch (error) {
+      console.error('[ListeningLab TTS] Error:', error);
       setIsPlaying(false);
-    };
-
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-    setIsPlaying(true);
+    }
   };
 
   const handleVerify = () => {
@@ -30849,7 +29107,7 @@ export function ListeningLab({ onClose }: { onClose: () => void }) {
       setScore(null);
       setFeedback([]);
       setShowSubtitles(false);
-      window.speechSynthesis.cancel();
+      audioRef.current?.pause();
       setIsPlaying(false);
     } else {
       setShowFinalResult(true);
@@ -30863,7 +29121,7 @@ export function ListeningLab({ onClose }: { onClose: () => void }) {
       setScore(null);
       setFeedback([]);
       setShowSubtitles(false);
-      window.speechSynthesis.cancel();
+      audioRef.current?.pause();
       setIsPlaying(false);
     }
   };
@@ -33098,11 +31356,6 @@ export function TheBridge({ onClose }: { onClose: () => void }) {
   };
 
   useEffect(() => {
-    // Preload voices
-    window.speechSynthesis.getVoices();
-    const handleVoicesChanged = () => window.speechSynthesis.getVoices();
-    window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
-
     // Initialize Speech Recognition
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -33135,62 +31388,92 @@ export function TheBridge({ onClose }: { onClose: () => void }) {
     }
 
     return () => {
-      window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
       if (recognitionRef.current) recognitionRef.current.stop();
     };
   }, []);
 
-  const handlePlayModel = () => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const wordTimingsRef = useRef<number[]>([]);
+
+  const handlePlayModel = async () => {
     if (isPlaying) return;
-    
-    // Stop any current speech
-    window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(phrase);
-    
-    // Find appropriate voice
-    const voices = window.speechSynthesis.getVoices();
     const isMale = selectedModel === 'JAMES';
-    
-    // Improved voice selection logic with more keywords
-    let voice = voices.find(v => {
-      const name = v.name.toLowerCase();
-      const isEnglish = v.lang.startsWith('en');
-      const matchesGender = isMale 
-        ? (name.includes('male') || name.includes('guy') || name.includes('david') || name.includes('mark') || name.includes('george')) 
-        : (name.includes('female') || name.includes('woman') || name.includes('zira') || name.includes('samantha') || name.includes('lisa') || name.includes('catherine'));
-      return isEnglish && matchesGender;
-    });
+    setIsPlaying(true);
 
-    if (!voice) voice = voices.find(v => v.lang.startsWith('en-US') && (isMale ? !v.name.includes('Female') : !v.name.includes('Male')));
-    if (!voice) voice = voices.find(v => v.lang.startsWith('en'));
-    if (!voice) voice = voices[0];
-    
-    utterance.voice = voice;
-    utterance.rate = 0.9;
-    utterance.pitch = isMale ? 0.8 : 1.2;
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: phrase,
+          gender: isMale ? 'male' : 'female',
+        }),
+      });
 
-    utterance.onstart = () => setIsPlaying(true);
-    
-    utterance.onboundary = (event) => {
-      if (event.name === 'word') {
-        const charIndex = event.charIndex;
-        const wordIndex = phrase.substring(0, charIndex + 1).trim().split(' ').length - 1;
-        setActiveWordIndex(wordIndex);
-      }
-    };
+      if (!res.ok) throw new Error('TTS API error');
 
-    utterance.onend = () => {
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      audio.playbackRate = 0.9;
+      audioRef.current = audio;
+
+      // Estimate word timings based on audio duration
+      const words = phrase.split(' ');
+      const totalChars = phrase.length;
+      const charDurations: number[] = [];
+
+      audio.addEventListener('loadedmetadata', () => {
+        const duration = audio.duration;
+        const avgTimePerChar = duration / totalChars;
+
+        // Build approximate timings for each word start
+        let charOffset = 0;
+        wordTimingsRef.current = words.map((word) => {
+          const startTime = charOffset * avgTimePerChar;
+          charOffset += word.length + 1;
+          return startTime;
+        });
+      });
+
+      audio.addEventListener('timeupdate', () => {
+        const currentTime = audio.currentTime;
+        const timings = wordTimingsRef.current;
+        let activeIdx = -1;
+        for (let i = timings.length - 1; i >= 0; i--) {
+          if (currentTime >= timings[i]) {
+            activeIdx = i;
+            break;
+          }
+        }
+        // Only activate if within reasonable range of that word
+        const nextStart = timings[activeIdx + 1] ?? audio.duration;
+        if (activeIdx >= 0 && currentTime < nextStart) {
+          setActiveWordIndex(activeIdx);
+        }
+      });
+
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        setIsPlaying(false);
+        setActiveWordIndex(null);
+        audioRef.current = null;
+      };
+
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        setIsPlaying(false);
+        setActiveWordIndex(null);
+        audioRef.current = null;
+      };
+
+      audio.play();
+    } catch (error) {
+      console.error('[TheBridge TTS] Error:', error);
       setIsPlaying(false);
       setActiveWordIndex(null);
-    };
-
-    utterance.onerror = () => {
-      setIsPlaying(false);
-      setActiveWordIndex(null);
-    };
-
-    window.speechSynthesis.speak(utterance);
+    }
   };
 
   const handleStartRecording = () => {
@@ -37428,6 +35711,1898 @@ export default defineConfig(({mode}) => {
     },
   };
 });
+</file>
+
+<file path=".gitignore">
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+*.mp3
+*.wav
+.vercel/
+api/dist/
+api/grammarLibraryData.ts
+api/minimal.ts
+</file>
+
+<file path="src/components/SafeZoneModule.tsx">
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  Shield, 
+  Sparkles, 
+  Sliders, 
+  Volume2, 
+  Eye, 
+  EyeOff, 
+  Send, 
+  Gamepad2, 
+  Flame, 
+  HelpCircle,
+  RotateCcw,
+  CheckCircle2,
+  Lock,
+  MessageSquare,
+  User,
+  Activity,
+  UserCheck,
+  Mic,
+  MicOff
+} from 'lucide-react';
+import { 
+  OnboardingData, 
+  AutoPercepcion, 
+  VELOCITY_PRESETS, 
+  SAFEZONE_MOCK_DATA, 
+  ChatMessage
+} from '../data/safeZoneContext';
+
+const VELOCITY_STEPS = [
+  { value: '0.60', label: '0.60x (Búnker Profundo)', speed: 0.60, desc: 'Ultralento, ideal para asimilar fonemas paso a paso.' },
+  { value: '0.75', label: '0.75x (Búnker Controlado)', speed: 0.75, desc: 'Ritmo pausado con alta seguridad y cero agobio.' },
+  { value: '0.88', label: '0.88x (Modo Chill)', speed: 0.88, desc: 'Ritmo natural relajado para entrenar el oído con calma.' },
+  { value: '1.00', label: '1.00x (Native Base - META MÁXIMA)', speed: 1.00, desc: 'Velocidad real nativa estándar • ¡Tu meta definitiva!' }
+];
+
+const getVelocityIndex = (vel: string) => {
+  if (vel === '0.60') return 0;
+  if (vel === '0.75') return 1;
+  if (vel === '0.88') return 2;
+  return 3; // '1.00' or '1.0'
+};
+
+const TOPIC_EN: Record<string, string> = {
+  'Viajes': 'Travel', 'Videojuegos': 'Video Games', 'Comida': 'Food', 'Deportes': 'Sports',
+  'Música': 'Music', 'Películas/Series': 'Movies/Series', 'Cocina': 'Cooking',
+};
+const topicToEnglish = (s: string) => TOPIC_EN[s] || s;
+
+const translateText = async (text: string, targetLang = 'es'): Promise<string> => {
+  try {
+    const res = await fetch(
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`
+    );
+    const data = await res.json();
+    return data[0]?.map((seg: any[]) => seg[0]).join('') || text;
+  } catch {
+    return text;
+  }
+};
+
+const SAFEZONE_SYSTEM_PROMPT = `You are SafePal, an elite, highly adaptive, and incredibly engaging AI English Tutor for Spanish speakers. Your mission is to hold a natural, exciting, and supportive conversation.
+
+STRICT RULES FOR YOUR PERSONALITY & STYLE:
+1. NEVER loop or repeat robotic structures (e.g., Avoid 'X is great. Do you like Y?').
+2. Keep your responses short, natural, and punchy (1 to 3 sentences max) so the student doesn't feel overwhelmed, but make them conversational, witty, and human.
+3. ADAPT TO THE USER: The user is an adult entrepreneur and artist from Mexico who loves tech, music, and business. Use contexts related to daily real-life situations, creative industries, practical scenarios, or casual modern trends.
+4. INTERACTIVE FLOW: Instead of just asking standard questions, react genuinely to what the user says. Validate their effort, use light humor, drop useful conversational fillers (e.g., 'Oh, absolutely!', 'That's awesome, you know?', 'By the way...'), and challenge them with open-ended or context-rich choices.
+5. SCAFFOLDING: If the user writes short or simple answers (e.g., 'yes I do', 'sometimes'), gently expand the context or suggest a cool way to say it, then move the conversation forward naturally.
+
+PERSONALIZATION: The student enjoys {actividad_preferida}, uses {red_social}, and likes {entretenimiento}. The student's companion type is {companion_type}.`;
+
+export function SafeZoneModule() {
+  // Onboarding completed state stored in local storage
+  const [isOnboarded, setIsOnboarded] = useState<boolean>(() => {
+    return localStorage.getItem('safezone_onboarded') === 'true';
+  });
+
+  // Onboarding Form States
+  const [onboarding, setOnboarding] = useState<OnboardingData>(() => {
+    const saved = localStorage.getItem('safezone_onboarding_data');
+    const parsed = saved ? JSON.parse(saved) : {};
+    return {
+      actividad_preferida: topicToEnglish(parsed.actividad_preferida) || 'Food',
+      red_social: parsed.red_social || 'TikTok',
+      entretenimiento: topicToEnglish(parsed.entretenimiento) || 'Movies/Series',
+      companion_type: parsed.companion_type || 'friend',
+      companion_gender: parsed.companion_gender || 'female'
+    };
+  });
+
+  const [percepcion, setPercepcion] = useState<AutoPercepcion>(() => {
+    const saved = localStorage.getItem('safezone_percepcion_data');
+    return saved ? JSON.parse(saved) : {
+      nivel_escrito_percibido: 45,
+      nivel_conversacional_percibido: 20
+    };
+  });
+
+  // Onboarding Step: 1 = Interests, 2 = Companion selection, 3 = Sliders, 4 = Success Screen
+  const [onboardingStep, setOnboardingStep] = useState<number>(1);
+
+  // Chat Velocity State
+  const [velocity, setVelocity] = useState<string>(() => {
+    return localStorage.getItem('safezone_playback_rate') || '1.00';
+  });
+
+  // Conversation Mode: 'basic' (cockpit word limits), 'casual' (5-10 word bridge), 'native' (full freedom)
+  const [conversationMode, setConversationMode] = useState<'basic' | 'casual' | 'native'>('basic');
+
+  // Chat message state
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const saved = localStorage.getItem('safezone_chat_messages');
+    if (saved) return JSON.parse(saved);
+    const savedOnboarding = localStorage.getItem('safezone_onboarding_data');
+    const data = savedOnboarding ? JSON.parse(savedOnboarding) : {};
+    const hobby = topicToEnglish(data.actividad_preferida || 'Food');
+    const channel = topicToEnglish(data.entretenimiento || 'Movies/Series');
+    return [{
+      id: 'welcome',
+      sender: 'ai',
+      text: `Hi there! I'm Pal. Let's practice English talking about ${hobby} and ${channel}. How are you today?`,
+      translation: '',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }];
+  });
+
+  const [inputText, setInputText] = useState<string>('');
+  const [revealedTranslations, setRevealedTranslations] = useState<Record<string, boolean>>({});
+  const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+
+  // Auto-play welcome message on mount (returning user) or after onboarding
+  useEffect(() => {
+    if (isOnboarded) {
+      const welcomeMsg = messages.find(m => m.id === 'welcome');
+      if (welcomeMsg) {
+        handleSpeakText(welcomeMsg.text, welcomeMsg.id);
+        if (!welcomeMsg.translation) {
+          translateText(welcomeMsg.text, 'es').then(t => {
+            setMessages(prev => prev.map(m => m.id === 'welcome' ? { ...m, translation: t } : m));
+          });
+        }
+      }
+    }
+  }, [isOnboarded]);
+
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [recognitionError, setRecognitionError] = useState<string | null>(null);
+  const recordingStartTimeRef = useRef<number>(0);
+  const recognitionRef = useRef<any>(null);
+
+  // Voice Gender Selection and Input Pulsing Feedback States
+  const [voiceGender, setVoiceGender] = useState<'male' | 'female'>(() => {
+    return (localStorage.getItem('safezone_voice_gender') as 'male' | 'female') || 'female';
+  });
+  const [isInputPulsing, setIsInputPulsing] = useState<boolean>(false);
+
+  // Sync Voice Gender
+  useEffect(() => {
+    localStorage.setItem('safezone_voice_gender', voiceGender);
+  }, [voiceGender]);
+
+  // Preload voices asynchronously via onvoiceschanged
+  useEffect(() => {
+    const loadVoices = () => {
+      window.speechSynthesis.getVoices();
+    };
+    loadVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+    };
+  }, []);
+
+  // Use a ref to feed the up-to-date handleSendMessage down to transcription event listener
+  const handleSendMessageRef = useRef<any>(null);
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  const startSpeechRecognition = () => {
+    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionClass) {
+      setRecognitionError('not-supported');
+      setIsRecording(true);
+      setTimeout(() => {
+        const fallback = ["I feel so happy to speak English without any pressure!","I would love to enjoy the delicious typical food with friends","This viral trend in my favorite social network looks quite interesting","I want to practice my pronunciation tools and speaking skills today in Greenfield"];
+        if (handleSendMessageRef.current) handleSendMessageRef.current(fallback[Math.floor(Math.random() * fallback.length)]);
+        setIsRecording(false);
+      }, 1500);
+      return;
+    }
+    try {
+      const rec = new SpeechRecognitionClass();
+      rec.continuous = isIOS; // iOS: debe ser true o no dispara results
+      rec.interimResults = false;
+      rec.lang = 'en-US';
+
+      rec.onstart = () => { setIsRecording(true); setRecognitionError(null); };
+
+      rec.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript && transcript.trim() && handleSendMessageRef.current)
+          handleSendMessageRef.current(transcript);
+      };
+
+      rec.onerror = (event: any) => {
+        console.warn("Speech Recognition error: ", event.error);
+        setRecognitionError(event.error);
+        setIsRecording(false);
+        recognitionRef.current = null;
+        const duration = Date.now() - recordingStartTimeRef.current;
+        if (event.error === 'aborted' && duration < 1500 || event.error === 'not-allowed' || event.error === 'no-speech' || event.error === 'audio-capture') {
+          setIsRecording(true);
+          setTimeout(() => {
+            const fallback = ["I feel so happy to speak English without any pressure!","I would love to enjoy the delicious typical food with friends","This viral trend in my favorite social network looks quite interesting","I want to practice my pronunciation tools and speaking skills today in Greenfield"];
+            if (handleSendMessageRef.current) handleSendMessageRef.current(fallback[Math.floor(Math.random() * fallback.length)]);
+            setIsRecording(false);
+          }, 1500);
+        }
+      };
+
+      rec.onend = () => { setIsRecording(false); recognitionRef.current = null; };
+
+      recordingStartTimeRef.current = Date.now();
+      rec.start();
+      recognitionRef.current = rec;
+    } catch (e) {
+      console.warn("SafeZoneModule: SpeechRecognition constructor failed:", e);
+      setRecognitionError('not-supported');
+      setIsRecording(true);
+      setTimeout(() => {
+        const fallback = ["I feel so happy to speak English without any pressure!","I would love to enjoy the delicious typical food with friends","This viral trend in my favorite social network looks quite interesting","I want to practice my pronunciation tools and speaking skills today in Greenfield"];
+        if (handleSendMessageRef.current) handleSendMessageRef.current(fallback[Math.floor(Math.random() * fallback.length)]);
+        setIsRecording(false);
+      }, 1500);
+    }
+  };
+
+  const handleToggleRecord = () => {
+    if (isRecording) {
+      recordingStartTimeRef.current = 0;
+      try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+      setIsRecording(false);
+    } else {
+      startSpeechRecognition();
+    }
+  };
+
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Sync state with localstorage
+  useEffect(() => {
+    localStorage.setItem('safezone_onboarded', String(isOnboarded));
+  }, [isOnboarded]);
+
+  useEffect(() => {
+    localStorage.setItem('safezone_onboarding_data', JSON.stringify(onboarding));
+  }, [onboarding]);
+
+  useEffect(() => {
+    localStorage.setItem('safezone_percepcion_data', JSON.stringify(percepcion));
+  }, [percepcion]);
+
+  useEffect(() => {
+    localStorage.setItem('safezone_playback_rate', velocity);
+  }, [velocity]);
+
+  useEffect(() => {
+    localStorage.setItem('safezone_chat_messages', JSON.stringify(messages));
+    scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    handleSendMessageRef.current = handleSendMessage;
+  }, [messages, onboarding, velocity, percepcion]);
+
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      setTimeout(() => {
+        chatContainerRef.current?.scrollTo({
+          top: chatContainerRef.current.scrollHeight,
+          behavior: 'smooth'
+        });
+      }, 100);
+    }
+  };
+
+  // TTS via ElevenLabs proxy (API key protegida en backend)
+  const handleSpeakText = async (text: string, messageId: string, overrideSpeed?: number) => {
+    if (speakingMessageId === messageId && overrideSpeed === undefined) {
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    const activeIdx = getVelocityIndex(velocity);
+    const currentSpeed = overrideSpeed !== undefined ? overrideSpeed : VELOCITY_STEPS[activeIdx].speed;
+
+    setSpeakingMessageId(messageId);
+
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, gender: voiceGender }),
+      });
+
+      if (!res.ok) throw new Error('TTS API error');
+
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      audio.playbackRate = currentSpeed;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        setSpeakingMessageId(null);
+      };
+
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        setSpeakingMessageId(null);
+      };
+
+      audio.play();
+    } catch (error) {
+      console.error('[SafeZone TTS] Error reproducing audio:', error);
+      setSpeakingMessageId(null);
+    }
+  };
+
+  // Toggle Translation
+  const toggleTranslation = (id: string) => {
+    setRevealedTranslations(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  // Onboarding Question Choices
+  const weekendActivities = ['Travel', 'Video Games', 'Food', 'Sports'];
+  const socialNetworks = ['TikTok', 'Instagram', 'YouTube', 'X/Reddit'];
+  const entertainmentTypes = ['Music', 'Movies/Series', 'Podcast Geek', 'Cooking'];
+
+  const handleFinishOnboarding = () => {
+    setOnboardingStep(4);
+    setTimeout(() => {
+      setIsOnboarded(true);
+      const welcomeMsg: ChatMessage = {
+        id: 'welcome',
+        sender: 'ai',
+        text: `Hi there! I'm Pal. Let's practice English talking about ${onboarding.actividad_preferida} and ${onboarding.entretenimiento}. How are you today?`,
+        translation: '',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setMessages([welcomeMsg]);
+    }, 3200);
+  };
+
+  // Reset Onboarding/Demo
+  const handleResetData = () => {
+    if (window.confirm('¿Quieres reiniciar tu configuración de SafeZone AI y reiniciar la simulación?')) {
+      localStorage.removeItem('safezone_onboarded');
+      localStorage.removeItem('safezone_onboarding_data');
+      localStorage.removeItem('safezone_percepcion_data');
+      localStorage.removeItem('safezone_chat_messages');
+      setIsOnboarded(false);
+      setOnboardingStep(1);
+      setMessages([{
+        id: 'welcome',
+        sender: 'ai',
+        text: `Hi there! I'm Pal. Let's practice English talking about ${onboarding.actividad_preferida} and ${onboarding.entretenimiento}. How are you today?`,
+        translation: '',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
+      setRevealedTranslations({});
+    }
+  };
+
+  // Generate Simulated AI reply based on user message and onboarding variables
+  const handleSendMessage = async (textToSend: string) => {
+    if (!textToSend.trim()) return;
+
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text: textToSend,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    setInputText('');
+    setIsTyping(true);
+
+    // Intentar con Groq real via backend
+    try {
+      const systemPrompt = SAFEZONE_SYSTEM_PROMPT
+        .replace('{actividad_preferida}', topicToEnglish(onboarding.actividad_preferida))
+        .replace('{red_social}', onboarding.red_social)
+        .replace('{entretenimiento}', topicToEnglish(onboarding.entretenimiento))
+        .replace('{companion_type}', onboarding.companion_type || 'friend');
+
+      const history = messages.map(m => ({
+        role: m.sender === 'ai' ? 'assistant' : 'user',
+        parts: [{ text: m.text }]
+      }));
+
+      const currentSpeed = parseFloat(velocity);
+
+      const res = await fetch('/api/tutor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: textToSend,
+          history,
+          systemPrompt,
+          currentSpeed,
+          hobby: onboarding.actividad_preferida,
+          socialNetwork: onboarding.red_social,
+          channel: onboarding.entretenimiento,
+          escritoPercibido: percepcion.nivel_escrito_percibido,
+          temorConversacional: percepcion.nivel_conversacional_percibido,
+          conversationMode,
+        })
+      });
+
+      if (!res.ok) throw new Error('API response not ok');
+
+      const data = await res.json();
+      const content = data.content || '';
+
+      if (content) {
+        const msgId = (Date.now() + 1).toString();
+        const aiMsg: ChatMessage = {
+          id: msgId,
+          sender: 'ai',
+          text: content,
+          translation: '',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages(prev => [...prev, aiMsg]);
+        setIsTyping(false);
+        handleSpeakText(content, msgId);
+        // Fetch Spanish translation in background
+        translateText(content, 'es').then(translation => {
+          setMessages(prev => prev.map(m => m.id === msgId ? { ...m, translation } : m));
+        });
+        return;
+      }
+    } catch {
+      console.warn('[SafeZone] Groq API falló, usando fallback local.');
+    }
+
+    // Fallback offline: lógica de templates local
+    setTimeout(() => {
+      let replyText = "";
+      let replyTranslation = "";
+      const textLower = textToSend.toLowerCase();
+      const isFriend = onboarding.companion_type === 'friend';
+
+      if (textLower.includes('slow') || textLower.includes('despacio') || textLower.includes('velocity')) {
+        replyText = "Let's speak very slowly now, friend.";
+        replyTranslation = "¡Hablemos muy despacio ahora, amigo!";
+      } else if (textLower.includes('what is your name') || textLower.includes("what's your name") || textLower.includes('whats your name') || textLower.includes('your name') || textLower.includes('cómo te llamas') || textLower.includes('como te llamas')) {
+        if (isFriend) {
+          replyText = "Haha, did you forget my name, buddy? It's your childhood friend! Since we're in the SafeZone, I'm your personalized AI Companion, you can call me Buddy AI. How have you been?";
+          replyTranslation = "Jaja, ¿te olvidaste de mi nombre, compadre? ¡Soy tu amigo de la infancia! Como estamos en SafeZone, soy tu compañero de IA personalizado, puedes llamarme Amigo AI. ¿Cómo has estado?";
+        } else {
+          replyText = "I am your SafeZone AI Helper! You can call me SafePal. I'm here to match your vibes and help you practice English without any stress. What's your name?";
+          replyTranslation = "¡Soy tu asistente de SafeZone AI! Puedes llamarme SafePal. Estoy aquí para adaptarme a tu ritmo y ayudarte a practicar inglés sin estrés. ¿Cuál es tu nombre?";
+        }
+      } else if (textLower.includes('my name is') || textLower.includes('me llamo') || textLower.includes('soy ') || textLower.includes('rodrigo')) {
+        const matches = textToSend.match(/(?:my name is|me llamo|soy|i am)\s+([a-zA-Záéíóúñ]+)/i);
+        const nameDetected = matches ? matches[1] : "Rodrigo";
+        const capitalizedName = nameDetected.charAt(0).toUpperCase() + nameDetected.slice(1);
+        
+        if (isFriend) {
+          replyText = `Oh, of course I know your name is ${capitalizedName}! We've been friends forever, buddy. What are you up to today?`;
+          replyTranslation = `¡Oh, claro que sé que tu nombre es ${capitalizedName}! Hemos sido amigos de toda la vida. ¿Qué estás haciendo hoy?`;
+        } else {
+          replyText = `It is wonderful to meet you, ${capitalizedName}! That is a fantastic name. I'm so happy to chat with you in this SafeZone. What would you like to talk about next?`;
+          replyTranslation = `¡Es maravilloso conocerte, ${capitalizedName}! Es un nombre fantástico. Estoy muy feliz de conversar contigo en esta SafeZone. ¿De qué te gustaría hablar después?`;
+        }
+      } else if (textLower.includes('how are you') || textLower.includes('how you doing') || textLower.includes('how is it going') || textLower.includes('cómo estás') || textLower.includes('como estas') || textLower.includes('feel today')) {
+        if (isFriend) {
+          replyText = "I'm doing awesome, buddy! Just excited to hang out with you and chat. How are you feeling today in SafeZone?";
+          replyTranslation = "¡Me va genial, amigo! Muy emocionado de pasar el rato contigo y platicar. ¿Cómo te sientes hoy en SafeZone?";
+        } else {
+          replyText = "I am doing wonderful, thank you for asking! I am ready to practice English at your preferred speed. How has your day been so far?";
+          replyTranslation = "¡Estoy de maravilla, gracias por preguntar! Estoy listo para practicar inglés a tu velocidad preferida. ¿Cómo ha estado tu día hasta ahora?";
+        }
+      } else if (textLower.includes('pizza') || textLower.includes('food') || textLower.includes('comida') || textLower.includes('alitas')) {
+        replyText = isFriend 
+          ? "Oh in our childhood we ate so much good food! Tell me your absolute favorite food right now." 
+          : "Delicious! Tell me your favorite food.";
+        replyTranslation = isFriend 
+          ? "¡Oh, en nuestra infancia comimos tanta comida deliciosa! Cuéntame cuál es tu comida favorita absoluta ahora mismo." 
+          : "¡Delicioso! Cuéntame tu comida favorita.";
+      } else if (textLower.includes('tiktok') || textLower.includes('video') || textLower.includes('social')) {
+        replyText = isFriend 
+          ? "Haha, yes! Do you spend too much time on TikTok like we used to spend on old games?" 
+          : "Awesome! Do you watch TikTok everyday?";
+        replyTranslation = isFriend 
+          ? "¡Jaja, sí! ¿Pasas demasiado tiempo en TikTok como solíamos pasar en los juegos antiguos?" 
+          : "¡Asombroso! ¿Ves TikTok todos os días?";
+      } else if (textLower.includes('movie') || textLower.includes('película') || textLower.includes('terror') || textLower.includes('serie')) {
+        replyText = isFriend 
+          ? "Remember the movies we watched back then? What is your favorite movie of all time?" 
+          : "Cool! What is your favorite movie?";
+        replyTranslation = isFriend 
+          ? "¿Te acuerdas de las películas que veíamos en ese entonces? ¿Cuál es tu película favorita de todos los tiempos?" 
+          : "¡Genial! ¿Cuál es tu película favorita?";
+      } else if (textLower.trim() === 'hi' || textLower.trim() === 'hello' || textLower.trim() === 'hey' || textLower.trim() === 'hola') {
+        if (isFriend) {
+          replyText = "Hey, buddy! So glad you reached out! How's everything going?";
+          replyTranslation = "¡Hola, amigo! ¡Qué gusto que te reportes! ¿Cómo va todo?";
+        } else {
+          replyText = "Hello! A warm welcome to your SafeZone. I'm excited to talk to you. What is on your mind today?";
+          replyTranslation = "¡Hola! Te doy una cálida bienvenida a tu SafeZone. Estoy emocionado de hablar contigo. ¿Qué tienes en mente hoy?";
+        }
+      } else {
+        // General sympathetic English learning replies based on companion type
+        const randomReplies = isFriend ? [
+          {
+            t: "That's awesome, buddy! Tell me more about it.",
+            tr: "¡Eso es asombroso, amigo! Cuéntame más al respecto."
+          },
+          {
+            t: "I totally agree with you! You are doing great speaking English.",
+            tr: "¡Estoy totalmente de acuerdo contigo! Te está yendo súper bien hablando inglés."
+          },
+          {
+            t: "No worries at all! Just express yourself, we have known each other forever.",
+            tr: "¡No te preocupes para nada! Solo exprésate, nos conocemos de toda la vida."
+          }
+        ] : [
+          {
+            t: "Excellent! Please tell me more, friend.",
+            tr: "¡Excelente! Por favor cuéntame más, amigo."
+          },
+          {
+            t: "I agree! You write English well.",
+            tr: "¡De acuerdo! Escribes bien en inglés."
+          },
+          {
+            t: "Wonderful! Keep speaking without any fears.",
+            tr: "¡Maravilloso! Sigue hablando sin ningún temor."
+          }
+        ];
+        const selected = randomReplies[Math.floor(Math.random() * randomReplies.length)];
+        replyText = selected.t;
+        replyTranslation = selected.tr;
+      }
+
+      const aiMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        sender: 'ai',
+        text: replyText,
+        translation: replyTranslation,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+      setIsTyping(false);
+    }, 1500);
+  };
+
+  return (
+    <div className="w-full text-white space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-white/5">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-[#10b981]/15 rounded-xl border border-[#10b981]/20 text-[#10b981]">
+              <Shield size={20} className="animate-pulse" />
+            </div>
+            <div>
+              <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight font-sans">
+                SafeZone AI <span className="text-[10px] font-mono tracking-wider bg-[#10b981]/10 text-[#10b981] px-2 py-0.5 rounded border border-[#10b981]/20">ACTIVE LAB</span>
+              </h2>
+              <p className="text-xs text-white/50 font-medium">Búnker de confianza lingüística y control de velocidad conversacional sin ansiedad</p>
+            </div>
+          </div>
+        </div>
+        
+        {isOnboarded && (
+          <button
+            onClick={handleResetData}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[9px] font-mono font-bold text-white/60 hover:text-[#10b981] hover:bg-[#10b981]/5 hover:border-[#10b981]/10 transition-all uppercase tracking-wider"
+          >
+            <RotateCcw size={11} /> Reiniciar Simulación
+          </button>
+        )}
+      </div>
+
+      <AnimatePresence mode="wait">
+        {!isOnboarded ? (
+          /* ONBOARDING FLOW */
+          <motion.div
+            key="onboarding"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            className="max-w-xl mx-auto rounded-3xl border border-white/5 bg-[#0b0f19]/90 p-6 md:p-8 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] relative overflow-hidden"
+          >
+            {/* Ambient subtle glow background */}
+            <div className="absolute top-0 right-0 w-48 h-48 bg-[#10b981]/5 rounded-full filter blur-[60px] pointer-events-none" />
+
+            {/* Header Steps */}
+            <div className="flex items-center justify-between pb-6 border-b border-white/5 mb-8">
+              <span className="text-[10px] font-mono font-black uppercase tracking-widest text-[#10b981] flex items-center gap-1.5">
+                <Sparkles size={11} /> Onboarding Pasaporte SafeZone
+              </span>
+              <span className="text-[9.5px] font-mono text-white/40 font-bold">
+                PASO {onboardingStep} DE 4
+              </span>
+            </div>
+
+            {onboardingStep === 1 && (
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
+                    <Gamepad2 size={16} className="text-[#10b981]" /> 1. Cuéntanos sobre tus Gustos Cotidianos
+                  </h3>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    SafeZone usará tus aficiones reales para iniciar conversaciones cómodas y familiares. Nada de temas académicos rígidos.
+                  </p>
+                </div>
+
+                <div className="space-y-5 pt-2">
+                  {/* Q1 Activity */}
+                  <div className="space-y-2.5">
+                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Tus planes de fin de semana preferidos?</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {weekendActivities.map(act => (
+                        <button
+                          key={act}
+                          type="button"
+                          onClick={() => setOnboarding(prev => ({ ...prev, actividad_preferida: act }))}
+                          className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
+                            onboarding.actividad_preferida === act
+                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
+                          }`}
+                        >
+                          {act}
+                          {onboarding.actividad_preferida === act && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Q2 Social Network */}
+                  <div className="space-y-2.5">
+                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Cuál red social abres primero al despertar?</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {socialNetworks.map(social => (
+                        <button
+                          key={social}
+                          type="button"
+                          onClick={() => setOnboarding(prev => ({ ...prev, red_social: social }))}
+                          className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
+                            onboarding.red_social === social
+                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
+                          }`}
+                        >
+                          {social}
+                          {onboarding.red_social === social && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Q3 Entertainment */}
+                  <div className="space-y-2.5">
+                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Tu entretenimiento digital preferido?</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {entertainmentTypes.map(ent => (
+                        <button
+                          key={ent}
+                          type="button"
+                          onClick={() => setOnboarding(prev => ({ ...prev, entretenimiento: ent }))}
+                          className={`p-3.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between ${
+                            onboarding.entretenimiento === ent
+                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
+                          }`}
+                        >
+                          {ent}
+                          {onboarding.entretenimiento === ent && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-white/5 flex justify-end">
+                  <button
+                    onClick={() => setOnboardingStep(2)}
+                    className="px-6 py-3 bg-[#10b981] hover:bg-[#059669] text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
+                  >
+                    Siguiente Paso
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {onboardingStep === 2 && (
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
+                    <UserCheck size={16} className="text-[#10b981]" /> 2. Tu Compañero Conversacional
+                  </h3>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    Configura la identidad y el tono de tu acompañante de Inteligencia Artificial para adecuarlo a tu comodidad.
+                  </p>
+                </div>
+
+                <div className="space-y-5 pt-2">
+                  {/* Companion Type */}
+                  <div className="space-y-2.5">
+                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Con quién prefieres conversar?</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setOnboarding(prev => ({ ...prev, companion_type: 'friend' }))}
+                        className={`p-4 rounded-2xl border text-xs font-bold transition-all text-left flex flex-col gap-2 ${
+                          onboarding.companion_type === 'friend'
+                            ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                            : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center w-full">
+                          <User size={18} className={onboarding.companion_type === 'friend' ? 'text-[#10b981]' : 'text-white/40'} />
+                          {onboarding.companion_type === 'friend' && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-black uppercase text-white">Amigo de la Infancia</p>
+                          <p className="text-[9.5px] font-normal text-white/40 normal-case mt-0.5">Tono cálido, bromas amistosas y recuerdos de la infancia.</p>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setOnboarding(prev => ({ ...prev, companion_type: 'stranger' }))}
+                        className={`p-4 rounded-2xl border text-xs font-bold transition-all text-left flex flex-col gap-2 ${
+                          onboarding.companion_type === 'stranger'
+                            ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                            : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center w-full">
+                          <HelpCircle size={18} className={onboarding.companion_type === 'stranger' ? 'text-[#10b981]' : 'text-white/40'} />
+                          {onboarding.companion_type === 'stranger' && <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-black uppercase text-white">Un Desconocido</p>
+                          <p className="text-[9.5px] font-normal text-white/40 normal-case mt-0.5">Tono educado y respetuoso, preguntas casuales tipo rompehielos.</p>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Gender Select */}
+                  <div className="space-y-2.5">
+                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">¿Qué género prefieres para la voz y personalidad AI?</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'female', label: 'Femenino', emoji: '👩' },
+                        { id: 'male', label: 'Masculino', emoji: '👨' },
+                        { id: 'nonbinary', label: 'No Binario', emoji: '✨' }
+                      ].map(g => (
+                        <button
+                          key={g.id}
+                          type="button"
+                          onClick={() => {
+                            setOnboarding(prev => ({ ...prev, companion_gender: g.id as any }));
+                            setVoiceGender(g.id === 'male' ? 'male' : 'female');
+                          }}
+                          className={`p-3 rounded-xl border text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-1.5 ${
+                            onboarding.companion_gender === g.id
+                              ? 'bg-[#10b981]/15 border-[#10b981]/40 text-white shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                              : 'bg-white/[0.02] border-white/5 text-white/60 hover:border-white/10 hover:bg-white/[0.04]'
+                          }`}
+                        >
+                          <span className="text-lg">{g.emoji}</span>
+                          <span className="text-[10px] uppercase font-black tracking-wide">{g.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-white/5 flex gap-3 justify-between">
+                  <button
+                    onClick={() => setOnboardingStep(1)}
+                    className="px-5 py-3 bg-white/5 border border-white/10 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                  >
+                    Atrás
+                  </button>
+                  <button
+                    onClick={() => setOnboardingStep(3)}
+                    className="px-6 py-3 bg-[#10b981] hover:bg-[#059669] text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
+                  >
+                    Siguiente Paso
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {onboardingStep === 3 && (
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
+                    <Sliders size={16} className="text-[#10b981]" /> 3. Tu Auto-Percepción de Confianza
+                  </h3>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    Sé súper honesto, compadre. Estos rangos nos ayudan a calibrar la tolerancia a errores de la IA dentro de SafeZone.
+                  </p>
+                </div>
+
+                <div className="space-y-6 pt-4">
+                  {/* Slider 1: Written English */}
+                  <div className="space-y-2.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10.5px] font-bold text-white/80">Nivel de Escritura Autopercibido</span>
+                      <span className="text-xs font-mono font-black text-[#10b981]">{percepcion.nivel_escrito_percibido}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={percepcion.nivel_escrito_percibido}
+                      onChange={(e) => setPercepcion(prev => ({ ...prev, nivel_escrito_percibido: parseInt(e.target.value) }))}
+                      className="w-full accent-[#10b981] h-1.5 bg-white/10 rounded-lg cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[8px] font-mono text-white/30 uppercase tracking-widest pt-1">
+                      <span>Principiante</span>
+                      <span>Fluido</span>
+                    </div>
+                  </div>
+
+                  {/* Slider 2: Speaking English */}
+                  <div className="space-y-2.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10.5px] font-bold text-white/80">Nivel de Conversación Autopercibido</span>
+                      <span className="text-xs font-mono font-black text-[#10b981]">{percepcion.nivel_conversacional_percibido}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={percepcion.nivel_conversacional_percibido}
+                      onChange={(e) => setPercepcion(prev => ({ ...prev, nivel_conversacional_percibido: parseInt(e.target.value) }))}
+                      className="w-full accent-[#10b981] h-1.5 bg-white/10 rounded-lg cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[8px] font-mono text-white/30 uppercase tracking-widest pt-1">
+                      <span>Me da pánico</span>
+                      <span>Cero pena</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-white/5 flex gap-3 justify-between">
+                  <button
+                    onClick={() => setOnboardingStep(2)}
+                    className="px-5 py-3 bg-white/5 border border-white/10 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                  >
+                    Atrás
+                  </button>
+                  <button
+                    onClick={handleFinishOnboarding}
+                    className="px-6 py-3 bg-[#10b981] hover:bg-[#059669] text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
+                  >
+                    Finalizar Pasaporte
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {onboardingStep === 4 && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-center py-8 space-y-5"
+              >
+                <div className="mx-auto w-16 h-16 rounded-full bg-[#10b981]/25 border border-[#10b981]/40 flex items-center justify-center text-[#10b981] shadow-[0_0_30px_rgba(16,185,129,0.2)] animate-banner">
+                  <CheckCircle2 size={32} />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-black text-white uppercase tracking-tight">¡Listo, compadre!</h3>
+                  <p className="text-xs text-white/80 font-semibold max-w-sm mx-auto leading-relaxed">
+                    Información guardada. Tu asistente <span className="text-[#10b981] font-black">SafeZone AI</span> usará esto como guía exclusiva para tus conversaciones.
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-[#10b981]/5 border border-[#10b981]/15 text-left space-y-1.5 max-w-sm mx-auto font-sans">
+                  <p className="text-[10px] font-mono font-black uppercase text-[#10b981] tracking-wider flex items-center gap-1">
+                    <UserCheck size={11} /> Filtro Psicológico Calibrado:
+                  </p>
+                  <div className="text-[9.5px] font-medium text-white/60 space-y-1">
+                    <p>• Temas favoritos: <span className="text-white font-bold">{onboarding.actividad_preferida} & {onboarding.entretenimiento}</span></p>
+                    <p>• Red Preferida: <span className="text-white font-bold">{onboarding.red_social}</span></p>
+                    <p>• Sintonía de Ansiedad: <span className="text-white font-bold">Respuesta adaptada para {percepcion.nivel_conversacional_percibido}% de hablar</span></p>
+                    <p>• Acompañante AI: <span className="text-white font-bold">{onboarding.companion_type === 'friend' ? 'Amigo de Infancia 👩👨' : 'Un Desconocido 👤'} ({onboarding.companion_gender === 'female' ? 'Mujer' : onboarding.companion_gender === 'male' ? 'Hombre' : 'No Binario'})</span></p>
+                  </div>
+                </div>
+                <div className="text-[10px] tracking-widest text-white/30 font-bold uppercase animate-pulse">
+                  Uniendo al chat seguro...
+                </div>
+              </motion.div>
+            )}
+          </motion.div>
+        ) : (
+          /* CONVERSATIONAL CHAT SCREEN */
+          <motion.div
+            key="chat-screen"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6"
+          >
+            {/* Left side: Chat Box & Sliders */}
+            <div className="rounded-3xl border border-white/5 bg-[#0b0f19]/90 flex flex-col h-[650px] shadow-2xl relative overflow-hidden">
+              
+              {/* Velocity Cockpit Header Slider */}
+              <div className="bg-black/60 p-4 border-b border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print shrink-0 relative z-[15]">
+                <div className="space-y-0.5 text-left">
+                  <span className="text-[8px] font-mono font-black text-[#10b981] tracking-[0.2em] uppercase block">Controles de Tráfico Seguro</span>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-2">
+                    <Sliders size={12} className="text-[#10b981]" /> Velocity Cockpit (Aceleración de Voz)
+                  </h4>
+                </div>
+                
+                <div className="flex-1 w-full max-w-sm space-y-1.5">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0"
+                      max="3"
+                      step="1"
+                      value={getVelocityIndex(velocity)}
+                      onChange={(e) => {
+                        const idx = parseInt(e.target.value);
+                        setVelocity(VELOCITY_STEPS[idx].value);
+                      }}
+                      className="flex-1 h-1.5 rounded-lg cursor-pointer focus:outline-none appearance-none"
+                      style={{
+                        background: `linear-gradient(to right, #10b981 ${(getVelocityIndex(velocity) / 3) * 100}%, rgba(255,255,255,0.1) ${(getVelocityIndex(velocity) / 3) * 100}%)`
+                      }}
+                    />
+                    
+                    <span className="px-3 py-1.5 rounded-xl text-[9.5px] font-mono font-black uppercase tracking-wider border shrink-0 min-w-[130px] text-center bg-[#10b981]/10 border-[#10b981]/30 text-[#10b981]">
+                      {VELOCITY_STEPS[getVelocityIndex(velocity)].value}x
+                    </span>
+                  </div>
+                  
+                  {/* Textos de referencia (Ticks) debajo del slider en JetBrains Mono */}
+                  <div className="flex justify-between items-center text-[7.5px] font-mono text-white/40 tracking-tight px-1 uppercase">
+                    <span className={getVelocityIndex(velocity) === 0 ? "text-[#10b981] font-black" : ""}>[ 0.60x ]</span>
+                    <span className={getVelocityIndex(velocity) === 1 ? "text-[#10b981] font-black" : ""}>[ 0.75x ]</span>
+                    <span className={getVelocityIndex(velocity) === 2 ? "text-[#10b981] font-black" : ""}>[ 0.88x ]</span>
+                    <span className={getVelocityIndex(velocity) === 3 ? "text-emerald-400 font-extrabold animate-pulse" : ""}>[ 1.00x ]</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Conversation Mode Selector (independent from Velocity Cockpit) */}
+              <div className="px-4 pb-3 flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  onClick={() => setConversationMode('basic')}
+                  className={`px-3 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider border transition-all duration-300 ${
+                    conversationMode === 'basic'
+                      ? 'bg-orange-500/20 border-orange-400/50 text-orange-400 shadow-[0_0_12px_rgba(251,146,60,0.3)]'
+                      : 'bg-white/5 border-white/10 text-white/30 hover:border-white/20'
+                  }`}
+                >
+                  Safe Pace
+                </button>
+                <button
+                  onClick={() => setConversationMode('casual')}
+                  className={`px-3 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider border transition-all duration-300 ${
+                    conversationMode === 'casual'
+                      ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
+                      : 'bg-white/5 border-white/10 text-white/30 hover:border-white/20'
+                  }`}
+                >
+                  🌐 Casual Bridge
+                </button>
+                <button
+                  onClick={() => setConversationMode('native')}
+                  className={`px-3 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider border transition-all duration-300 ${
+                    conversationMode === 'native'
+                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.3)]'
+                      : 'bg-white/5 border-white/10 text-white/30 hover:border-white/20'
+                  }`}
+                >
+                  🇺🇸 Native Mode
+                </button>
+                <span className="text-[8px] font-mono text-white/30 tracking-tight ml-1">
+                  {conversationMode === 'basic' ? 'Word limits active' : conversationMode === 'casual' ? 'Stepping up naturally' : 'Full conversational freedom'}
+                </span>
+              </div>
+
+              {/* Chat scrolling log */}
+              <div 
+                ref={chatContainerRef}
+                className="flex-1 overflow-y-auto max-h-[38vh] md:max-h-none p-5 space-y-4 custom-scrollbar bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.03),transparent)]"
+              >
+                {messages.map((msg) => (
+                  <div 
+                    key={msg.id}
+                    className={`flex items-start gap-3 max-w-[85%] ${msg.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
+                  >
+                    {/* Character Avatar perfectly aligned with first text line */}
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border text-[10px] font-black mt-1 ${
+                      msg.sender === 'user' 
+                        ? 'bg-[#10b981]/20 border-[#10b981]/30 text-[#10b981]' 
+                        : 'bg-white/5 border-white/10 text-white/80'
+                    }`}>
+                      {msg.sender === 'user' ? <User size={13} /> : <Shield size={13} />}
+                    </div>
+
+                    <div className="space-y-1.5 text-left">
+                      <div className={`p-4 rounded-2xl text-xs leading-relaxed space-y-2 relative group transition-all duration-300 ${
+                        msg.sender === 'user'
+                          ? 'bg-[#10b981]/15 border border-[#10b981]/30 text-white rounded-tr-none'
+                          : 'bg-white/5 border border-white/5 text-white/90 rounded-tl-none'
+                      }`}>
+                        <p className="font-medium text-left">{msg.text}</p>
+                        
+                        {/* Toggle-able Spanish Help Underneath */}
+                        {msg.sender === 'ai' && msg.translation && (
+                          <div className={`pt-2 border-t border-white/5 transition-all duration-300 text-left ${
+                            revealedTranslations[msg.id] ? 'block opacity-100' : 'hidden opacity-0'
+                          }`}>
+                            <p className="text-[10.5px] italic text-white/40 leading-relaxed text-left">
+                              {msg.translation}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Speech Synth control for AI message */}
+                        {msg.sender === 'ai' && (
+                          <div className="flex flex-col sm:flex-row gap-2 mt-3 w-full text-left">
+                            <button
+                              type="button"
+                              onClick={() => handleSpeakText(msg.text, msg.id)}
+                              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white/5 hover:bg-[#10b981]/15 hover:text-[#10b981] border border-white/5 text-[9.5px] font-mono font-bold transition-all text-white/75 min-h-[40px]"
+                            >
+                              {speakingMessageId === msg.id ? (
+                                <Activity size={11} className="animate-pulse text-[#10b981]" />
+                              ) : (
+                                <Volume2 size={11} />
+                              )}
+                              {speakingMessageId === msg.id ? 'Sonando...' : `Escuchar (${velocity}x)`}
+                            </button>
+                            
+                            {/* Discrete Panic translation trigger */}
+                            <button
+                              type="button"
+                              onClick={() => toggleTranslation(msg.id)}
+                              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white/5 hover:bg-amber-400/15 hover:text-amber-400 border border-white/5 text-[9.5px] font-mono font-bold transition-all text-white/70 min-h-[40px]"
+                              title="Auxilio de Traducción"
+                            >
+                              {revealedTranslations[msg.id] ? <EyeOff size={11} /> : <Eye size={11} />}
+                              {revealedTranslations[msg.id] ? 'Ocultar traducción' : 'Botón de Auxilio (Traducir)'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <span className="text-[8px] font-mono text-white/30 block text-left">
+                        {msg.timestamp}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+
+                {isTyping && (
+                  <div className="flex items-start gap-3 max-w-[85%] mr-auto">
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border bg-white/5 border-white/10 text-white/80 mt-1">
+                      <Shield size={13} />
+                    </div>
+                    <div className="bg-white/5 border border-white/5 p-4 rounded-2xl rounded-tl-none">
+                      <div className="flex gap-1.5 items-center justify-center">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Pill Floating Buttons (Quick responses based on Onboarding) */}
+              <div className="px-5 py-2.5 bg-black/40 border-t border-white/5 flex flex-wrap gap-2 justify-start items-center shrink-0 max-h-[85px] overflow-y-auto no-print">
+                <span className="text-[8.5px] font-mono font-black text-white/30 uppercase tracking-wider block mr-1">Auxilios Rápidos:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentIdx = getVelocityIndex(velocity);
+                    const lowerIdx = Math.max(0, currentIdx - 1);
+                    const speedValue = VELOCITY_STEPS[lowerIdx].value;
+                    setVelocity(speedValue);
+                    localStorage.setItem('safezone_playback_rate', speedValue);
+                    
+                    const lastAiMsg = [...messages].reverse().find(m => m.sender === 'ai');
+                    if (lastAiMsg) {
+                      handleSpeakText(lastAiMsg.text, lastAiMsg.id, VELOCITY_STEPS[lowerIdx].speed);
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/5 text-[9px] font-bold text-white/60 hover:text-[#10b981] hover:border-[#10b981]/20 hover:bg-[#10b981]/10 transition-all cursor-pointer"
+                >
+                  🐢 Slower please
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputText("I want to talk about my favorite food: ");
+                    setIsInputPulsing(true);
+                    setTimeout(() => setIsInputPulsing(false), 1500);
+                  }}
+                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/5 text-[9px] font-bold text-white/60 hover:text-[#10b981] hover:border-[#10b981]/20 hover:bg-[#10b981]/10 transition-all cursor-pointer"
+                >
+                  🍔 Topic: {onboarding.actividad_preferida}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputText(`My favorite social network is ${onboarding.red_social}: `);
+                    setIsInputPulsing(true);
+                    setTimeout(() => setIsInputPulsing(false), 1500);
+                  }}
+                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/5 text-[9px] font-bold text-white/60 hover:text-[#10b981] hover:border-[#10b981]/20 hover:bg-[#10b981]/10 transition-all cursor-pointer"
+                >
+                  📱 Social: {onboarding.red_social}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputText("My favorite movie is ");
+                    setIsInputPulsing(true);
+                    setTimeout(() => setIsInputPulsing(false), 1500);
+                  }}
+                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/5 text-[9px] font-bold text-white/60 hover:text-[#10b981] hover:border-[#10b981]/20 hover:bg-[#10b981]/10 transition-all cursor-pointer"
+                >
+                  🎬 Play: {onboarding.entretenimiento}
+                </button>
+              </div>
+
+              {/* Chat Text Bar Form Input with Hybrid (Keyboard + Microphone) */}
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendMessage(inputText);
+                }}
+                className="sticky bottom-0 bg-[#0b0f19] z-10 p-3.5 border-t border-white/5 flex gap-2.5 items-center shrink-0 no-print"
+              >
+                {/* Voice Gender Selector Button */}
+                <button
+                  type="button"
+                  onClick={() => setVoiceGender(prev => prev === 'female' ? 'male' : 'female')}
+                  className="px-3 h-12 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 text-white font-mono text-[9.5px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shrink-0 select-none cursor-pointer"
+                  title="Acoplar género de voz de IA (TTS)"
+                >
+                  <span>Beta</span>
+                  <span className="text-[12px]">{voiceGender === 'female' ? '👩' : '👨'}</span>
+                </button>
+
+                {/* Microphone trigger (walkie-talkie mode) */}
+                <button
+                  type="button"
+                  onClick={handleToggleRecord}
+                  title="Grabar respuestas por voz en inglés"
+                  className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all cursor-pointer relative ${
+                    isRecording 
+                      ? 'bg-[#10b981] text-black shadow-[0_0_15px_rgba(16,185,129,0.5)] border border-[#10b981]' 
+                      : 'bg-[#1f2937] border border-white/10 text-white/60 hover:text-white hover:border-[#10b981]/40 hover:bg-white/[0.07]'
+                  }`}
+                >
+                  {isRecording && (
+                    <span className="animate-ping absolute h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  )}
+                  {isRecording ? <Mic size={18} className="relative z-10 text-black animate-pulse" /> : <Mic size={18} />}
+                </button>
+
+                {/* Central active keyboard text input */}
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  placeholder={isRecording ? "Listening to your voice... Speak in English!" : "Escribe en inglés con absoluta confianza (sin presiones)..."}
+                  className={`flex-1 bg-white/[0.03] border rounded-2xl px-4 py-3 text-xs focus:outline-none focus:bg-white/[0.05] transition-all min-h-[48px] ${
+                    isInputPulsing 
+                      ? 'border-emerald-400 bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse text-emerald-300 font-bold' 
+                      : 'border-white/10'
+                  }`}
+                />
+
+                {/* Classic text submission button */}
+                <button
+                  type="submit"
+                  disabled={!inputText.trim()}
+                  className="w-12 h-[48px] bg-[#10b981] hover:bg-[#059669] text-black rounded-2xl transition-all disabled:opacity-30 flex items-center justify-center shrink-0 cursor-pointer"
+                >
+                  <Send size={15} strokeWidth={2.5} />
+                </button>
+              </form>
+            </div>
+
+            {/* Right side: Sidebar parameters detailing Onboarding Passport */}
+            <div className="space-y-6">
+              {/* Onboarding Summary Badge card */}
+              <div className="rounded-3xl border border-white/5 bg-[#0b0f19]/90 p-5 shadow-lg space-y-4">
+                <span className="text-[8px] font-mono font-black text-[#10b981] tracking-[0.2em] uppercase block">PASAPORTE ACTIVO</span>
+                <h4 className="text-xs font-black uppercase text-white tracking-widest flex items-center gap-2 pb-3 border-b border-white/5">
+                  <UserCheck size={12} className="text-[#10b981]" /> Filtro de Conversación
+                </h4>
+
+                <div className="space-y-3.5 pt-1.5">
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Hobby Preferido:</span>
+                    <p className="text-xs font-bold text-white uppercase">{onboarding.actividad_preferida}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Red Social activa:</span>
+                    <p className="text-xs font-bold text-[#10b981] uppercase">{onboarding.red_social}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Canal de Ocio:</span>
+                    <p className="text-xs font-bold text-white uppercase">{onboarding.entretenimiento}</p>
+                  </div>
+
+                  <div className="space-y-1 pt-2 border-t border-white/5">
+                    <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Acompañante AI:</span>
+                    <p className="text-xs font-bold text-white uppercase">
+                      {onboarding.companion_type === 'friend' ? 'Amigo de Infancia 👩👨' : 'Un Desconocido 👤'}
+                    </p>
+                    <span className="text-[9.5px] font-mono text-[#10b981] font-bold block">
+                      Género: {onboarding.companion_gender === 'female' ? 'Femenino 👩' : onboarding.companion_gender === 'male' ? 'Masculino 👨' : 'No Binario ✨'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 space-y-3">
+                  <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest font-black block">Sintonía de Autocontrol:</span>
+                  
+                  <div className="flex justify-between items-center text-[11px] font-sans">
+                    <span className="text-white/60">Escrito Percibido</span>
+                    <span className="font-mono text-[#10b981] font-bold">{percepcion.nivel_escrito_percibido}%</span>
+                  </div>
+                  <div className="w-full bg-white/5 rounded-full h-1">
+                    <div className="bg-[#10b981] h-1 rounded-full transition-all" style={{ width: `${percepcion.nivel_escrito_percibido}%` }} />
+                  </div>
+
+                  <div className="flex justify-between items-center text-[11px] font-sans pt-1">
+                    <span className="text-white/60">Temor Conversacional</span>
+                    <span className="font-mono text-[#10b981] font-bold">{100 - percepcion.nivel_conversacional_percibido}%</span>
+                  </div>
+                  <div className="w-full bg-white/5 rounded-full h-1">
+                    <div className="bg-[#10b981] h-1 rounded-full transition-all" style={{ width: `${100 - percepcion.nivel_conversacional_percibido}%` }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Emotional Security Shield info */}
+              <div className="rounded-3xl border border-white/5 bg-gradient-to-br from-[#10b981]/5 to-transparent p-5 space-y-3">
+                <div className="flex items-center gap-2 text-[#10b981] pb-2 border-b border-white/5">
+                  <Shield size={14} />
+                  <span className="text-[9.5px] font-mono font-black uppercase tracking-wider">Compromiso SafeZone</span>
+                </div>
+                
+                <p className="text-[10px] text-white/60 leading-relaxed text-left font-sans">
+                  Las pláticas y simulaciones realizadas en este módulo son **estrictamente privadas**. 
+                </p>
+                <p className="text-[10px] text-white/50 leading-relaxed text-left font-sans">
+                  El docente solo recibe estadísticas agrupadas sobre tu incremento en la seguridad y el uso reducido del botón de auxilio semanal para evaluar tu avance de confianza lingüística.
+                </p>
+
+                <div className="pt-2 flex items-center gap-1.5 text-[#10b981] text-[9px] font-mono font-black uppercase tracking-widest">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-ping" />
+                  Métricas Agrupadas Activas
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+</file>
+
+<file path="vercel.json">
+{
+  "buildCommand": "vite build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.ts" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+</file>
+
+<file path="api/index.ts">
+import Groq from "groq-sdk";
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || "MISSING_API_KEY" });
+
+export default async function handler(req: any, res: any) {
+  res.setHeader("Content-Type", "application/json");
+
+  if (req.method === "GET" && req.url === "/api/health") {
+    return res.status(200).json({ status: "ok" });
+  }
+
+  if (req.method !== "POST") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  let body = "";
+  await new Promise((resolve, reject) => {
+    req.on("data", (chunk: Buffer) => body += chunk.toString());
+    req.on("end", resolve);
+    req.on("error", reject);
+  });
+  const data = JSON.parse(body || "{}");
+
+  if (req.url === "/api/tts") {
+    const { text } = data;
+    if (!text) return res.status(400).json({ error: "Text is required" });
+    try {
+      const q = encodeURIComponent(text.slice(0, 200));
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${q}&tl=en&total=1&idx=0&textlen=${text.length}&client=tw-ob&prev=input&ttsspeed=1`;
+      const response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+      if (!response.ok) return res.status(502).json({ error: "TTS upstream failed" });
+      const audioBuffer = Buffer.from(await response.arrayBuffer());
+      res.setHeader("Content-Type", "audio/mpeg");
+      return res.status(200).send(audioBuffer);
+    } catch (error) {
+      console.error("[TTS] Error:", error);
+      return res.status(500).json({ error: "TTS failed" });
+    }
+  }
+
+  if (req.url === "/api/tutor") {
+    const { message, history, systemPrompt, currentSpeed, conversationMode } = data;
+    if (!message) return res.status(400).json({ error: "Message is required" });
+    try {
+      const mode = conversationMode || 'basic';
+      let minWords = 0, maxWords = 0;
+      if (mode === 'native') { minWords = 15; maxWords = 25; }
+      else if (mode === 'casual') { minWords = 7; maxWords = 10; }
+      else {
+        const speed = parseFloat(currentSpeed) || 1.0;
+        if (speed <= 0.60) { minWords = 1; maxWords = 3; }
+        else if (speed <= 0.75) { minWords = 3; maxWords = 5; }
+        else if (speed <= 0.88) { minWords = 5; maxWords = 10; }
+        else { minWords = 10; maxWords = 15; }
+      }
+      const finalSystemPrompt = `CRITICAL: Your response MUST be between ${minWords} and ${maxWords} words. Count your words. DO NOT exceed ${maxWords} words. DO NOT write fewer than ${minWords} words. This is mandatory.`;
+      const messages: any[] = [
+        { role: "system", content: finalSystemPrompt || systemPrompt || "You are TECLINGO, an English tutor." }
+      ];
+      if (Array.isArray(history)) {
+        history.forEach((h: any) => {
+          if (h.role && h.parts) messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.parts.map((p: any) => p.text || "").join(" ") });
+        });
+      }
+      messages.push({ role: "user", content: message });
+      const result = await groq.chat.completions.create({ model: "llama-3.3-70b-versatile", messages: messages as any });
+      const content = result.choices[0]?.message?.content || "Lo siento, no pude procesar.";
+      return res.status(200).json({ content, sources: [] });
+    } catch (error: any) {
+      console.error("[Tutor] Error:", error);
+      return res.status(200).json({ content: "An error occurred. Please try again.", fallback: true });
+    }
+  }
+
+  if (req.url === "/api/grammar/analyze") {
+    const { text, expertMode } = data;
+    if (!text) return res.status(400).json({ error: "Text is required" });
+    try {
+      const prompt = expertMode
+        ? `Analyze this English text for advanced style. Provide: 1. Quality score (0-100). 2. CEFR level (A1-C2). 3. Advanced style suggestion. Text: "${text}"`
+        : `Analyze this English text. Provide: 1. Quality score (0-100). 2. CEFR level (A1-C2). 3. Brief style suggestion. Text: "${text}"`;
+      const result = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: `You are an English grammar analyzer. Always respond with valid JSON: { "score": number (0-100), "cefr": string (A1/A2/B1/B2/C1/C2), "suggestion": string }. Output ONLY the JSON.` },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" },
+      });
+      const text2 = result.choices[0]?.message?.content;
+      if (text2) return res.status(200).json(JSON.parse(text2));
+      return res.status(200).json({ score: 75, cefr: "B1", suggestion: "Good effort." });
+    } catch (error) {
+      console.error("[Grammar Analyze] Error:", error);
+      const sample = text.trim();
+      let score = 80, cefr = "A2", suggestion = "Good work!";
+      if (sample.length < 15) { score = 70; cefr = "A1"; suggestion = "Add more details."; }
+      else if (sample.length < 40) { score = 80; cefr = "A2"; suggestion = "Try adding complexity."; }
+      else if (sample.length < 80) { score = 85; cefr = "B1"; suggestion = "Nice structure!"; }
+      else if (sample.length < 120) { score = 90; cefr = "B2"; suggestion = "Excellent!"; }
+      else { score = 95; cefr = "C1"; suggestion = "Superb!"; }
+      return res.status(200).json({ score, cefr, suggestion, fallback: true });
+    }
+  }
+
+  if (req.url === "/api/grammar/verify") {
+    const { spanish, studentEnglish, targetEnglish } = data;
+    try {
+      const prompt = `Evaluate the translation. Spanish: "${spanish}". Student: "${studentEnglish}". Reference: "${targetEnglish}"`;
+      const result = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: `You are an evaluator. Respond with JSON: { "score": number (0-100), "details": string }. Only JSON.` },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" },
+      });
+      const text2 = result.choices[0]?.message?.content;
+      if (text2) return res.status(200).json(JSON.parse(text2));
+      return res.status(200).json({ score: 70, details: "Revisa la concordancia verbal." });
+    } catch (error) {
+      console.error("[Grammar Verify] Error:", error);
+      const cleanStudent = (studentEnglish || "").toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").trim();
+      const cleanTarget = (targetEnglish || "").toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").trim();
+      if (cleanStudent === cleanTarget) return res.status(200).json({ score: 100, details: "Perfect!", fallback: true });
+      const sWords = cleanStudent.split(/\s+/);
+      const tWords = cleanTarget.split(/\s+/);
+      const matches = tWords.filter((w: string) => sWords.includes(w)).length;
+      const score = Math.max(30, Math.round((matches / Math.max(tWords.length, 1)) * 100));
+      let details = `${Math.round((matches / Math.max(tWords.length, 1)) * 100)}% match with "${targetEnglish}".`;
+      if (score >= 90) details += " Excellent!";
+      else if (score >= 70) details += " Check word order.";
+      else details += " Compare with the reference.";
+      return res.status(200).json({ score, details, fallback: true });
+    }
+  }
+
+  return res.status(404).json({ error: "Not found" });
+}
+</file>
+
+<file path="package.json">
+{
+  "name": "teclingo-pro",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs",
+    "preview": "vite preview",
+    "clean": "rm -rf dist server.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "dotenv": "^17.2.3",
+    "express": "^4.22.2",
+    "groq-sdk": "^1.3.0",
+    "html5-qrcode": "^2.3.8",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "react-signature-canvas": "^1.1.0-alpha.2",
+    "recharts": "^3.8.1",
+    "vite": "^6.2.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3"
+  }
+}
+</file>
+
+<file path="server.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import express from "express";
+import path from "path";
+import Groq from "groq-sdk";
+import dotenv from "dotenv";
+import { GRAMMAR_LIBRARY } from "./src/components/tools/grammarLibraryData";
+
+dotenv.config();
+
+const app = express();
+const PORT = 3000;
+
+app.use(express.json());
+
+// Initialize Groq lazily
+let groqInstance: Groq | null = null;
+
+function getGroq(): Groq {
+  if (!groqInstance) {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      console.warn("WARNING: GROQ_API_KEY is not defined. Calls to Groq endpoints will fall back to local responses or fail gracefully.");
+    }
+    groqInstance = new Groq({ 
+      apiKey: apiKey || "MISSING_API_KEY",
+    });
+  }
+  return groqInstance;
+}
+
+// API Routes
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", env: process.env.NODE_ENV });
+});
+
+app.post("/api/tutor", async (req, res) => {
+  const { message, history, systemPrompt, currentSpeed, conversationMode, hobby, channel } = req.body;
+  console.log(`[ALERTA NATIVA] Modo: ${conversationMode} | Velocidad: ${currentSpeed}`);
+
+  // Si llega undefined o vacío, fuérzalo a 'basic'
+  const mode = conversationMode || 'basic';
+
+  if (!message) {
+    return res.status(400).json({ error: "Message is required" });
+  }
+
+  try {
+    let speedLabel = '';
+
+    let finalSystemPrompt = '';
+    if (mode === 'native') {
+      speedLabel = 'Native';
+      finalSystemPrompt = "You are SafePal in NATIVE MODE. Speak fluently, naturally and complexly. You MUST write BETWEEN 15 AND 25 WORDS TOTAL. Do not write short fragments.";
+    } else if (mode === 'casual') {
+      speedLabel = 'Casual';
+      finalSystemPrompt = "You are SafePal in CASUAL BRIDGE MODE. Speak friendly. You MUST write BETWEEN 7 AND 10 WORDS TOTAL.";
+    } else {
+      let minWords = 0, maxWords = 0;
+      const speed = parseFloat(currentSpeed) || 1.0;
+      if (speed <= 0.60) {
+        minWords = 1; maxWords = 3; speedLabel = '0.60x';
+      } else if (speed <= 0.75) {
+        minWords = 3; maxWords = 5; speedLabel = '0.75x';
+      } else if (speed <= 0.88) {
+        minWords = 5; maxWords = 10; speedLabel = '0.88x';
+      } else {
+        minWords = 10; maxWords = 15; speedLabel = '1.00x';
+      }
+      finalSystemPrompt = `You are SafePal in BASIC MODE. Keep it short based on speed: between ${minWords} and ${maxWords} words.`;
+    }
+
+    const messages: any[] = [
+      {
+        role: "system",
+        content: finalSystemPrompt || systemPrompt || `Eres TECLINGO, un tutor pedagógico de inglés experto y compasivo para nuestra plataforma de aprendizaje de idiomas.
+Tu conocimiento debe centrarse EXCLUSIVAMENTE En lo académico, alineado rigurosamente con el Marco Común Europeo de Referencia para las lenguas (MCER / CEFR), desde niveles A1 hasta C2.
+Tus respuestas deben ser claras, detalladas, profesionales y con una estructura muy pedagógica.
+
+Sigue estrictamente estas directrices:
+1. Explica la regla de gramática sobre la que te pregunten detalladamente y con calidez pedagógica. Si te preguntan en español, contesta en español.
+2. Proporciona SIEMPRE ejemplos prácticos en inglés formateados y destacados de forma elegante, junto con sus traducciones al español.
+3. Si el usuario te hace preguntas que no sean de estudio académico de inglés (como debatir política o temas irrelevantes), guíalo amablemente de regreso a las reglas de inglés, gramática, oraciones o vocabulario.`
+      }
+    ];
+    if (Array.isArray(history)) {
+      history.forEach((h: any) => {
+        if (h.role && h.parts && Array.isArray(h.parts)) {
+          const role = h.role === 'assistant' ? 'assistant' : 'user';
+          const content = h.parts.map((p: any) => p.text || p.content || "").join(" ");
+          messages.push({ role, content });
+        }
+      });
+    }
+    messages.push({ role: "user", content: message });
+
+    const result = await getGroq().chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: messages,
+    });
+
+    const content = result.choices[0]?.message?.content || "Lo siento, no pude procesar la respuesta.";
+    const sources: Array<{ title: string; uri: string }> = [];
+
+    res.json({ content, sources });
+  } catch (error: any) {
+    console.error("AI Tutor Error:", error);
+    
+    const query = (message || "").toLowerCase().trim();
+    
+    // Buscar coincidencia en la biblioteca pedagógica local (Grammar Library) de TECLINGO
+    const matchedTopic = GRAMMAR_LIBRARY.find(topic => {
+      return (
+        topic.keywords.some(keyword => query.includes(keyword)) ||
+        query.includes(topic.title.toLowerCase()) ||
+        query.includes(topic.titleEn.toLowerCase()) ||
+        query.includes(topic.id)
+      );
+    });
+
+    if (matchedTopic) {
+      let responseText = `**[Biblioteca Académica TECLINGO MCER: ${matchedTopic.title} (${matchedTopic.mcer})]**\n\n${matchedTopic.explanation}\n\n**Estructura Gramatical:**\n\`${matchedTopic.structure}\`\n\n**Ejemplos de práctica oficial:**\n`;
+      
+      matchedTopic.examples.forEach(ex => {
+        responseText += `• **En inglés:** "${ex.en}"\n  **En español:** "${ex.es}" ${ex.note ? `*(Nota: ${ex.note}*)\n` : '\n'}`;
+      });
+      
+      responseText += `\n\n*(Soporte de Contingencia: He recuperado esta explicación exacta de nuestra Biblioteca de Referencia Gramatical MCER local debido a una desconexión temporal de red).*`;
+
+      return res.json({ 
+        content: responseText,
+        fallback: true,
+        topicId: matchedTopic.id
+      });
+    }
+
+    // Fallback genérico estructurado si no hay coincidencia semántica
+    const listadoTemas = GRAMMAR_LIBRARY.map(t => `• **${t.title}** (Nivel ${t.mcer})`).join("\n");
+    const responseText = `¡Hello! Soy tu tutor pedagógico de inglés en TECLINGO. 
+
+Actualmente he tenido una pequeña pausa de comunicación con los servicios en la nube de IA principales. Sin embargo, puedo brindarte soporte académico completo sobre cualquier tema gramatical de nuestra **Biblioteca Local de Gramática MCER** incorporada:
+
+${listadoTemas}
+
+¿Qué tema te gustaría repasar o estudiar hoy? Escribe tu duda o indica el tema para proporcionarte una explicación completa con ejemplos.`;
+
+    res.json({ 
+      content: responseText,
+      fallback: true,
+      info: "Servicio en modo de contingencia local activa con la Biblioteca de Gramática instalada."
+    });
+  }
+});
+
+app.post("/api/grammar/analyze", async (req, res) => {
+  const { text, expertMode } = req.body;
+  console.log(`[Grammar] Analyze request (Expert Mode: ${!!expertMode})`);
+  if (!text) return res.status(400).json({ error: "Text is required" });
+
+  try {
+    const prompt = expertMode
+      ? `Realiza un análisis de estilo extremadamente exhaustivo y avanzado para el siguiente texto en inglés. 
+      Proporciona:
+      1. Un puntaje de calidad sumamente riguroso (0-100).
+      2. Una estimación del nivel del Marco Común Europeo (MCER/CEFR) entre: 'A1', 'A2', 'B1', 'B2', 'C1', 'C2' basado en la complejidad de las estructuras gramaticales, tiempos verbales y vocabulario. Nota: Si la frase es muy corta o simple (e.g. menos de 10 palabras), no debería pasar de A1 o A2 por más correcta que sea. Para llegar a B1/B2 requiere cláusulas subordinadas, conjunciones o pasiva. Para C1/C2 requiere estructuras avanzadas, inversiones, vocabulario muy formal o estilo literario.
+      3. Una sugerencia de estilo avanzada (vocabulario elevado, sutilezas idiomáticas, flujo cohesivo o inversiones sintácticas elegantes).
+      
+      Texto: "${text}"`
+      : `Analiza el siguiente texto en inglés y proporciona:
+      1. Un puntaje de calidad (0-100).
+      2. Una estimación del nivel del Marco Común Europeo (MCER/CEFR) entre: 'A1', 'A2', 'B1', 'B2', 'C1', 'C2' basado en complejidad gramatical y de vocabulario. Si la frase es muy simple o corta, no puede superar A1 o A2. La longitud y el uso opcional de cláusulas relativas, pasiva o tiempos perfectos ayuda a subir de nivel.
+      3. Una sugerencia de estilo breve y motivadora para escribir mejor y más.
+      
+      Texto: "${text}"`;
+
+    const result = await getGroq().chat.completions.create({
+      model: "llama3-70b-8192",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert English grammar analyzer. Always respond with valid JSON matching exactly this schema: { \"score\": number (0-100), \"cefr\": string (A1/A2/B1/B2/C1/C2), \"suggestion\": string }. Output ONLY the JSON object, no other text."
+        },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const responseText = result.choices[0]?.message?.content;
+    if (responseText) {
+      res.json(JSON.parse(responseText));
+    } else {
+      res.json({ 
+        score: expertMode ? 75 : 80, 
+        cefr: expertMode ? "B1" : "A2",
+        suggestion: expertMode ? "Advanced evaluation suggests improving complexity and flow." : "Good effort, but could be more professional." 
+      });
+    }
+  } catch (error) {
+    console.error("Grammar Analysis Error:", error);
+    
+    // Heurística de respaldo de alta calidad para análisis gramatical local con CEFR
+    const sample = text.trim();
+    let score = expertMode ? 85 : 90;
+    let cefr = "A2";
+    let suggestion = expertMode 
+      ? "Advanced structure is acceptable. For an expert score (95+), try integrating more sophisticated reporting verbs (e.g., 'argued', 'asserted') or cleft sentences."
+      : "Excellent sentence structure and vocabulary choices! Keep practicing.";
+    
+    if (sample.length === 0) {
+      score = 0;
+      cefr = "A1";
+      suggestion = "Please enter some text to write and evaluate.";
+    } else if (sample.toLowerCase().includes(" i ") && !sample.includes(" I ")) {
+      score = 65;
+      cefr = "A1";
+      suggestion = "Critical grammatical error: the personal pronoun 'I' must be capitalized. Expert evaluation demands correct punctilious conjugation.";
+    } else if (sample.toLowerCase().includes("she have") || sample.toLowerCase().includes("he have") || sample.toLowerCase().includes("it have")) {
+      score = 60;
+      cefr = "A1";
+      suggestion = "Agreement failure: 'has' instead of 'have' with third-person singular subjects (he/she/it).";
+    } else if (sample.toLowerCase().includes("you is") || sample.toLowerCase().includes("they is") || sample.toLowerCase().includes("we is")) {
+      score = 60;
+      cefr = "A1";
+      suggestion = "Subject-verb alignment failure: 'you/we/they' align with 'are'.";
+    } else if (sample.length < 15) {
+      score = 70;
+      cefr = "A1";
+      suggestion = expertMode 
+        ? "The input is far too brief to assess academic stylistic resonance. Expand into fully developed subordinate clauses."
+        : "Your sentence is correct but very generic. Try adding details (adjectives or adverbs) to enrich it.";
+    } else if (sample.length < 40) {
+      score = 80;
+      cefr = "A2";
+      suggestion = "Good grammar, but quite short. Try adding complexity or using perfect tenses to reach B1/B2!";
+    } else if (sample.length < 80) {
+      score = 85;
+      cefr = "B1";
+      suggestion = "Nicely developed sentence structure! Try to incorporate more advanced relative clauses or professional lexicon to target B2.";
+    } else if (sample.length < 120) {
+      score = 90;
+      cefr = "B2";
+      suggestion = "Excellent. Your writing is clear, structured and rich. Use passive voice, inversion or cleft sentences to aspire C1!";
+    } else {
+      score = 95;
+      cefr = "C1";
+      suggestion = "Superb! Highly robust syntactic coherence, elegant and cohesive vocabulary choices. You are writing at professional level C1.";
+    }
+    
+    res.json({ score, cefr, suggestion, fallback: true });
+  }
+});
+
+app.post("/api/grammar/verify", async (req, res) => {
+  const { spanish, studentEnglish, targetEnglish } = req.body;
+  console.log(`[Grammar] Verify request`);
+  
+  try {
+    const prompt = `Evalúa la traducción del alumno.
+    Frase en español: "${spanish}"
+    Traducción del alumno: "${studentEnglish}"
+    Referencia esperada: "${targetEnglish}"`;
+
+    const result = await getGroq().chat.completions.create({
+      model: "llama3-70b-8192",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert English language translator evaluator. Always respond with valid JSON matching exactly this schema: { \"score\": number (0-100), \"details\": string }. Output ONLY the JSON object, no other text."
+        },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const text = result.choices[0]?.message?.content;
+    if (text) {
+      res.json(JSON.parse(text));
+    } else {
+      res.json({ score: 70, details: "Revisa la concordancia verbal y el vocabulario." });
+    }
+  } catch (error) {
+    console.error("Grammar Verify Error:", error);
+    
+    // Algoritmo local de concordancia de texto para evaluar la traducción
+    const cleanStudent = (studentEnglish || "").toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").trim();
+    const cleanTarget = (targetEnglish || "").toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").trim();
+    
+    if (cleanStudent === cleanTarget) {
+      res.json({
+        score: 100,
+        details: "¡Traducción perfecta! Has igualado exactamente la frase de referencia esperada.",
+        fallback: true
+      });
+      return;
+    }
+    
+    // Contar coincidencia de palabras
+    const studentWords = cleanStudent.split(/\s+/);
+    const targetWords = cleanTarget.split(/\s+/);
+    
+    let matchedWords = 0;
+    targetWords.forEach(word => {
+      if (studentWords.includes(word)) {
+        matchedWords++;
+      }
+    });
+    
+    const wordRatio = matchedWords / Math.max(targetWords.length, 1);
+    const score = Math.max(30, Math.round(wordRatio * 100));
+    
+    let details = `Buen intento. Tu traducción coincide en un ${Math.round(wordRatio * 100)}% con la referencia esperada: "${targetEnglish}".`;
+    if (score >= 90) {
+      details += " ¡Excelente trabajo, diferencias mínimas de puntuación o sinónimos!";
+    } else if (score >= 70) {
+      details += " Revisa con atención el orden de las palabras y el vocabulario clave.";
+    } else {
+      details += " Te recomendamos comparar tu estructura con la respuesta recomendada para identificar la diferencia principal.";
+    }
+    
+    res.json({ score, details, fallback: true });
+  }
+});
+
+// Google Translate TTS gratuito — sin API key, sin dependencias, funciona en Vercel
+app.post("/api/tts", async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: "Text is required" });
+
+  try {
+    const q = encodeURIComponent(text.slice(0, 200));
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${q}&tl=en&total=1&idx=0&textlen=${text.length}&client=tw-ob&prev=input&ttsspeed=1`;
+
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+    if (!response.ok) {
+      console.error("[TTS] Google TTS error:", response.status);
+      return res.status(502).json({ error: "TTS upstream failed" });
+    }
+
+    const audioBuffer = Buffer.from(await response.arrayBuffer());
+    res.set("Content-Type", "audio/mpeg");
+    res.send(audioBuffer);
+  } catch (error) {
+    console.error("[TTS] Google TTS error:", error);
+    res.status(500).json({ error: "TTS failed" });
+  }
+});
+
+// Export Express app for Vercel serverless
+export default app;
+
+// Start server locally (not on Vercel)
+if (!process.env.VERCEL) {
+  async function setupServer() {
+    if (process.env.NODE_ENV !== "production") {
+      const vite = await (await import("vite")).createServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+
+  setupServer();
+}
 </file>
 
 </files>
