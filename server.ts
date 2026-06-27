@@ -7,14 +7,22 @@ import express from "express";
 import path from "path";
 import Groq from "groq-sdk";
 import dotenv from "dotenv";
+import cors from "cors";
 import { GRAMMAR_LIBRARY } from "./src/components/tools/grammarLibraryData";
+import authRoutes from "./src/routes/auth";
+import gradesRoutes from "./src/routes/grades";
+import { initializeSpreadsheet } from "./src/services/googleService";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(cors());
+app.use(express.json({ limit: "1mb" }));
+
+app.use("/api/auth", authRoutes);
+app.use("/api/grades", gradesRoutes);
 
 // Initialize Groq lazily
 let groqInstance: Groq | null = null;
@@ -330,6 +338,13 @@ export default app;
 // Start server locally (not on Vercel)
 if (!process.env.VERCEL) {
   async function setupServer() {
+    try {
+      await initializeSpreadsheet();
+      console.log('[Server] Google Sheets initialized');
+    } catch (err) {
+      console.warn('[Server] No se pudo inicializar el spreadsheet — la app funcionará sin persistencia:', (err as Error).message);
+    }
+
     if (process.env.NODE_ENV !== "production") {
       const vite = await (await import("vite")).createServer({
         server: { middlewareMode: true },

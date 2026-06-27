@@ -4,7 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import { 
+import { useGoogleLogin } from '@react-oauth/google';
+import type { UserSession } from '../App';
+import {
   ShieldCheck, 
   Mail, 
   Lock, 
@@ -15,12 +17,13 @@ import {
   Zap,
   Globe,
   LogIn,
-  UserPlus
+  UserPlus,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface AuthPortalProps {
-  onLogin: (role: 'DIRECTOR' | 'DOCENTE' | 'ALUMNO') => void;
+  onLogin: (session: UserSession) => void;
 }
 
 export function AuthPortal({ onLogin }: AuthPortalProps) {
@@ -28,22 +31,63 @@ export function AuthPortal({ onLogin }: AuthPortalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const handleGoogleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      setIsAuthenticating(true);
+      setAuthError(null);
+      try {
+        const res = await fetch('/api/auth/google-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accessToken: tokenResponse.access_token }),
+        });
+        if (!res.ok) throw new Error('Error al autenticar con el servidor');
+        const data = await res.json();
+        onLogin({
+          email: data.email,
+          name: data.name,
+          picture: data.picture || null,
+          role: data.role || 'ALUMNO',
+        });
+      } catch (err: any) {
+        setAuthError(err.message || 'Error de autenticación');
+        setIsAuthenticating(false);
+      }
+    },
+    onError: () => {
+      setAuthError('Error al iniciar sesión con Google');
+    },
+    flow: 'implicit',
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsAuthenticating(true);
-    // Simulate auth
+    setAuthError(null);
     setTimeout(() => {
       setIsAuthenticating(false);
-      onLogin('ALUMNO'); // Default to Alumno for generic login
+      onLogin({
+        email: email || 'demo@teclingo.app',
+        name: email?.split('@')[0] || 'Demo User',
+        picture: null,
+        role: 'ALUMNO',
+      });
     }, 2000);
   };
 
   const handleDemoMode = () => {
     setIsAuthenticating(true);
+    setAuthError(null);
     setTimeout(() => {
       setIsAuthenticating(false);
-      onLogin('ALUMNO'); // Demo takes you to Alumno Dashboard
+      onLogin({
+        email: 'visitante@teclingo.app',
+        name: 'Visitante',
+        picture: null,
+        role: 'ALUMNO',
+      });
     }, 1500);
   };
 
@@ -136,10 +180,22 @@ export function AuthPortal({ onLogin }: AuthPortalProps) {
                </div>
 
                {/* Google SSO Button */}
-               <button className="w-full py-3 md:py-4 rounded-2xl md:rounded-3xl bg-white border border-white flex items-center justify-center gap-3 md:gap-4 text-black text-[10px] md:text-[11px] font-black uppercase tracking-widest hover:scale-[1.02] transition-transform mb-6 md:mb-8 shadow-xl">
-                  <Chrome size={18} className="md:size-[20px]" />
-                  Continuar con Google
+               <button
+                 onClick={() => handleGoogleLogin()}
+                 disabled={isAuthenticating}
+                 className="w-full py-3 md:py-4 rounded-2xl md:rounded-3xl bg-white border border-white flex items-center justify-center gap-3 md:gap-4 text-black text-[10px] md:text-[11px] font-black uppercase tracking-widest hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed transition-transform mb-6 md:mb-8 shadow-xl"
+               >
+                  {isAuthenticating ? (
+                    <Loader2 size={18} className="md:size-[20px] animate-spin" />
+                  ) : (
+                    <Chrome size={18} className="md:size-[20px]" />
+                  )}
+                  {isAuthenticating ? 'AUTENTICANDO...' : 'Continuar con Google'}
                </button>
+
+               {authError && (
+                 <p className="text-red-400 text-[9px] font-bold uppercase tracking-widest text-center mb-4">{authError}</p>
+               )}
 
                <div className="flex items-center gap-3 md:gap-4 mb-6 md:mb-8">
                   <div className="h-px flex-1 bg-white/10" />

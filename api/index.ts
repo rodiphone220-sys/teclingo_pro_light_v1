@@ -1,5 +1,34 @@
 import Groq from "groq-sdk";
+import { google } from "googleapis";
+import {
+  checkOrCreateUser,
+  registerLog,
+  saveGrade,
+  initializeSpreadsheet,
+} from "../src/services/googleService";
+
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || "MISSING_API_KEY" });
+
+const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID);
+
+initializeSpreadsheet().catch((err) =>
+  console.warn('[Vercel] initializeSpreadsheet falló:', (err as Error).message),
+);
+
+function readBody(req: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk: Buffer) => (body += chunk.toString()));
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(body || "{}"));
+      } catch {
+        resolve({});
+      }
+    });
+    req.on("error", reject);
+  });
+}
 
 export default async function handler(req: any, res: any) {
   res.setHeader("Content-Type", "application/json");
@@ -12,14 +41,66 @@ export default async function handler(req: any, res: any) {
     return res.status(404).json({ error: "Not found" });
   }
 
-  let body = "";
-  await new Promise((resolve, reject) => {
-    req.on("data", (chunk: Buffer) => body += chunk.toString());
-    req.on("end", resolve);
-    req.on("error", reject);
-  });
-  const data = JSON.parse(body || "{}");
+  const data = await readBody(req);
 
+  /* ───── API Auth Google Login ───── */
+  if (req.url === "/api/auth/google-login") {
+    const { accessToken } = data;
+    if (!accessToken) return res.status(400).json({ error: "accessToken requerido" });
+
+    try {
+      oauth2Client.setCredentials({ access_token: accessToken });
+      const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+      const userInfo = await oauth2.userinfo.get();
+
+      const email = userInfo.data.email;
+      const name = userInfo.data.name || email?.split("@")[0] || "User";
+
+      if (!email) return res.status(400).json({ error: "No se pudo obtener el email" });
+
+      const { isNew } = await checkOrCreateUser(email, name);
+      await registerLog(email, "LOGIN");
+
+      let role = "ALUMNO";
+      if (email.endsWith("@directivo.teclingo")) role = "DIRECTOR";
+      else if (email.endsWith("@docente.teclingo")) role = "DOCENTE";
+
+      return res.status(200).json({ email, name, picture: userInfo.data.picture, role, isNew });
+    } catch (error: any) {
+      console.error("[Vercel Auth] google-login error:", error);
+      return res.status(401).json({ error: error.message || "Error de autenticación" });
+    }
+  }
+
+  /* ───── API Auth Logout ───── */
+  if (req.url === "/api/auth/logout") {
+    try {
+      if (data.email) await registerLog(data.email, "LOGOUT");
+      return res.status(200).json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message || "Error al cerrar sesión" });
+    }
+  }
+
+  /* ───── API Grades ───── */
+  if (req.url === "/api/grades") {
+    const { email, modulo, herramienta, calificacion, tokensUsados } = data;
+    if (!email || !modulo || !herramienta || calificacion === undefined) {
+      return res.status(400).json({ error: "Faltan campos requeridos" });
+    }
+    const score = Number(calificacion);
+    if (isNaN(score) || score < 0 || score > 100) {
+      return res.status(400).json({ error: "calificacion debe ser 0-100" });
+    }
+    try {
+      await saveGrade(email, modulo, herramienta, score, tokensUsados ? Number(tokensUsados) : 0);
+      return res.status(200).json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message || "Error al guardar calificación" });
+    }
+  }
+
+  /* ───── API TTS ───── */
   if (req.url === "/api/tts") {
     const { text } = data;
     if (!text) return res.status(400).json({ error: "Text is required" });
@@ -37,6 +118,7 @@ export default async function handler(req: any, res: any) {
     }
   }
 
+  /* ───── API Tutor ───── */
   if (req.url === "/api/tutor") {
     const { message, history, systemPrompt, temperature, maxTokens } = data;
     if (!message) return res.status(400).json({ error: "Message is required" });
@@ -64,6 +146,7 @@ export default async function handler(req: any, res: any) {
     }
   }
 
+  /* ───── API Grammar Analyze ───── */
   if (req.url === "/api/grammar/analyze") {
     const { text, expertMode } = data;
     if (!text) return res.status(400).json({ error: "Text is required" });
@@ -95,6 +178,7 @@ export default async function handler(req: any, res: any) {
     }
   }
 
+  /* ───── API Grammar Verify ───── */
   if (req.url === "/api/grammar/verify") {
     const { spanish, studentEnglish, targetEnglish } = data;
     try {

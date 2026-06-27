@@ -13,3 +13,8 @@ api/dist/
 api/grammarLibraryData.ts
 api/minimal.ts
 .vercel
+# Generated repomix output
+repomix-output.xml
+# Google credential JSON files — NEVER commit these
+*.apps.googleusercontent.com.json
+*-a71e8e670683.json
