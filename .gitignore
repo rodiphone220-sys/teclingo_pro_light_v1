@@ -12,3 +12,4 @@ coverage/
 api/dist/
 api/grammarLibraryData.ts
 api/minimal.ts
+.vercel

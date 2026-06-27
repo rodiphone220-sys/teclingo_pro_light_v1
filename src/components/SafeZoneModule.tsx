@@ -167,6 +167,7 @@ export function SafeZoneModule() {
   const [revealedTranslations, setRevealedTranslations] = useState<Record<string, boolean>>({});
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Auto-play welcome message on mount (returning user) or after onboarding
   useEffect(() => {
@@ -231,7 +232,7 @@ export function SafeZoneModule() {
     }
     try {
       const rec = new SpeechRecognitionClass();
-      rec.continuous = isIOS; // iOS: debe ser true o no dispara results
+      rec.continuous = false;
       rec.interimResults = false;
       rec.lang = 'en-US';
 
@@ -243,23 +244,30 @@ export function SafeZoneModule() {
           handleSendMessageRef.current(transcript);
       };
 
+      const cleanup = () => {
+        setIsRecording(false);
+        recognitionRef.current = null;
+      };
+
+      const runFallback = () => {
+        cleanup();
+        const fallback = ["I feel so happy to speak English without any pressure!","I would love to enjoy the delicious typical food with friends","This viral trend in my favorite social network looks quite interesting","I want to practice my pronunciation tools and speaking skills today in Greenfield"];
+        setTimeout(() => {
+          if (handleSendMessageRef.current) handleSendMessageRef.current(fallback[Math.floor(Math.random() * fallback.length)]);
+        }, 100);
+      };
+
       rec.onerror = (event: any) => {
         console.warn("Speech Recognition error: ", event.error);
         setRecognitionError(event.error);
-        setIsRecording(false);
-        recognitionRef.current = null;
+        cleanup();
         const duration = Date.now() - recordingStartTimeRef.current;
         if (event.error === 'aborted' && duration < 1500 || event.error === 'not-allowed' || event.error === 'no-speech' || event.error === 'audio-capture') {
-          setIsRecording(true);
-          setTimeout(() => {
-            const fallback = ["I feel so happy to speak English without any pressure!","I would love to enjoy the delicious typical food with friends","This viral trend in my favorite social network looks quite interesting","I want to practice my pronunciation tools and speaking skills today in Greenfield"];
-            if (handleSendMessageRef.current) handleSendMessageRef.current(fallback[Math.floor(Math.random() * fallback.length)]);
-            setIsRecording(false);
-          }, 1500);
+          runFallback();
         }
       };
 
-      rec.onend = () => { setIsRecording(false); recognitionRef.current = null; };
+      rec.onend = () => { cleanup(); };
 
       recordingStartTimeRef.current = Date.now();
       rec.start();
@@ -279,8 +287,9 @@ export function SafeZoneModule() {
   const handleToggleRecord = () => {
     if (isRecording) {
       recordingStartTimeRef.current = 0;
-      try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+      try { recognitionRef.current?.stop(); } catch (e) { console.log("Error al detener micro:", e); }
       setIsRecording(false);
+      recognitionRef.current = null;
     } else {
       startSpeechRecognition();
     }
@@ -325,14 +334,16 @@ export function SafeZoneModule() {
     }
   };
 
-  // TTS via ElevenLabs proxy (API key protegida en backend)
+  // TTS via Google Translate (gratuito, sin API key)
   const handleSpeakText = async (text: string, messageId: string, overrideSpeed?: number) => {
     if (speakingMessageId === messageId && overrideSpeed === undefined) {
+      audioRef.current?.pause();
+      audioRef.current = null;
       setSpeakingMessageId(null);
       return;
     }
 
-    const currentSpeed = overrideSpeed !== undefined ? overrideSpeed : config.safezone.voiceSpeed;
+    const currentSpeed = overrideSpeed !== undefined ? overrideSpeed : parseFloat(velocity);
 
     setSpeakingMessageId(messageId);
 
@@ -349,23 +360,34 @@ export function SafeZoneModule() {
       const audioUrl = URL.createObjectURL(blob);
       const audio = new Audio(audioUrl);
       audio.playbackRate = currentSpeed;
+      audioRef.current = audio;
 
       audio.onended = () => {
         URL.revokeObjectURL(audioUrl);
+        audioRef.current = null;
         setSpeakingMessageId(null);
       };
 
       audio.onerror = () => {
         URL.revokeObjectURL(audioUrl);
+        audioRef.current = null;
         setSpeakingMessageId(null);
       };
 
       audio.play();
     } catch (error) {
       console.error('[SafeZone TTS] Error reproducing audio:', error);
+      audioRef.current = null;
       setSpeakingMessageId(null);
     }
   };
+
+  // Actualiza playbackRate en tiempo real si la velocidad cambia mientras el audio se reproduce
+  useEffect(() => {
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.playbackRate = parseFloat(velocity);
+    }
+  }, [velocity]);
 
   // Toggle Translation
   const toggleTranslation = (id: string) => {
@@ -893,12 +915,12 @@ export function SafeZoneModule() {
                     </span>
                   </div>
                   
-                  {/* Textos de referencia (Ticks) debajo del slider en JetBrains Mono */}
+                  {/* Textos de referencia (Ticks) debajo del slider — clic para saltar */}
                   <div className="flex justify-between items-center text-[7.5px] font-mono text-white/40 tracking-tight px-1 uppercase">
-                    <span className={getVelocityIndex(velocity) === 0 ? "text-[#10b981] font-black" : ""}>[ 0.60x ]</span>
-                    <span className={getVelocityIndex(velocity) === 1 ? "text-[#10b981] font-black" : ""}>[ 0.75x ]</span>
-                    <span className={getVelocityIndex(velocity) === 2 ? "text-[#10b981] font-black" : ""}>[ 0.88x ]</span>
-                    <span className={getVelocityIndex(velocity) === 3 ? "text-emerald-400 font-extrabold animate-pulse" : ""}>[ 1.00x ]</span>
+                    <button type="button" onClick={() => setVelocity(VELOCITY_STEPS[0].value)} className={`transition-colors hover:text-white/70 ${getVelocityIndex(velocity) === 0 ? "text-[#10b981] font-black" : ""}`}>[ 0.60x ]</button>
+                    <button type="button" onClick={() => setVelocity(VELOCITY_STEPS[1].value)} className={`transition-colors hover:text-white/70 ${getVelocityIndex(velocity) === 1 ? "text-[#10b981] font-black" : ""}`}>[ 0.75x ]</button>
+                    <button type="button" onClick={() => setVelocity(VELOCITY_STEPS[2].value)} className={`transition-colors hover:text-white/70 ${getVelocityIndex(velocity) === 2 ? "text-[#10b981] font-black" : ""}`}>[ 0.88x ]</button>
+                    <button type="button" onClick={() => setVelocity(VELOCITY_STEPS[3].value)} className={`transition-colors hover:text-white/70 ${getVelocityIndex(velocity) === 3 ? "text-emerald-400 font-extrabold animate-pulse" : ""}`}>[ 1.00x ]</button>
                   </div>
                 </div>
               </div>
