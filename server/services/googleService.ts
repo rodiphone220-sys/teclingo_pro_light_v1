@@ -16,6 +16,10 @@ const SHEET_HEADERS: Record<string, string[]> = {
 let sheetsClient: sheets_v4.Sheets | null = null;
 let gmailClient: gmail_v1.Gmail | null = null;
 
+function fixPrivateKey(key: string): string {
+  return key.replace(/\\n/g, '\n');
+}
+
 function loadServiceAccountCredentials(): { client_email: string; private_key: string } {
   const envJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   const filePath = process.env.GOOGLE_SERVICE_ACCOUNT_PATH;
@@ -23,7 +27,7 @@ function loadServiceAccountCredentials(): { client_email: string; private_key: s
   if (envJson) {
     try {
       const parsed = JSON.parse(envJson);
-      return { client_email: parsed.client_email, private_key: parsed.private_key };
+      return { client_email: parsed.client_email, private_key: fixPrivateKey(parsed.private_key) };
     } catch {
       throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON contiene JSON inválido');
     }
@@ -33,7 +37,7 @@ function loadServiceAccountCredentials(): { client_email: string; private_key: s
     const raw = readFileSync(filePath, 'utf-8');
     const parsed = JSON.parse(raw);
     process.env.GOOGLE_SERVICE_ACCOUNT_JSON = raw;
-    return { client_email: parsed.client_email, private_key: parsed.private_key };
+    return { client_email: parsed.client_email, private_key: fixPrivateKey(parsed.private_key) };
   }
 
   throw new Error(
