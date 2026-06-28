@@ -5,7 +5,7 @@ import {
   registerLog,
   saveGrade,
   initializeSpreadsheet,
-} from "../server/services/googleService";
+} from "../server/services/googleService.ts";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || "MISSING_API_KEY" });
 
