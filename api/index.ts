@@ -111,6 +111,47 @@ export default async function handler(req: any, res: any) {
     }
   }
 
+  /* ───── API Auth Google One Tap ───── */
+  if (req.url === "/api/auth/google-one-tap") {
+    const { credential } = data;
+    if (!credential) return res.status(400).json({ error: "Credencial requerida" });
+
+    const oauth2Client = getOAuth2Client();
+    if (!oauth2Client) {
+      console.error("[Vercel Auth] GOOGLE_CLIENT_ID o GOOGLE_CLIENT_SECRET no configurados");
+      return res.status(500).json({ error: "Google OAuth no está configurado en el servidor" });
+    }
+
+    try {
+      const ticket = await oauth2Client.verifyIdToken({
+        idToken: credential,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email) {
+        return res.status(400).json({ error: "No se pudo obtener el email del token" });
+      }
+
+      const email = payload.email;
+      const name = payload.name || email?.split("@")[0] || "User";
+
+      const { isNew } = await checkOrCreateUser(email, name);
+      await registerLog(email, "LOGIN");
+
+      let role = "ALUMNO";
+      if (email.endsWith("@directivo.teclingo")) role = "DIRECTOR";
+      else if (email.endsWith("@docente.teclingo")) role = "DOCENTE";
+
+      return res.status(200).json({ email, name, picture: payload.picture, role, isNew });
+    } catch (error: any) {
+      console.error("[Vercel Auth] google-one-tap error:", {
+        message: error.message,
+        stack: error.stack?.split("\n").slice(0, 3).join("\n") || error.stack,
+      });
+      return res.status(401).json({ error: error.message || "Error de autenticación" });
+    }
+  }
+
   /* ───── API Auth Logout ───── */
   if (req.url === "/api/auth/logout") {
     try {

@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { useGoogleLogin } from '@react-oauth/google';
+import React, { useState, useEffect } from 'react';
 import type { UserSession } from '../App';
 import {
   ShieldCheck, 
@@ -20,7 +19,7 @@ import {
   UserPlus,
   Loader2
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 
 interface AuthPortalProps {
   onLogin: (session: UserSession) => void;
@@ -32,58 +31,70 @@ export function AuthPortal({ onLogin }: AuthPortalProps) {
   const [password, setPassword] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
+  const [gisReady, setGisReady] = useState(false);
 
-  const tryDemoFallback = () => {
-    setAuthError('No se pudo conectar con Google. Entrando en modo demo...');
-    setTimeout(() => {
-      setIsAuthenticating(false);
-      onLogin({
-        email: 'visitante@teclingo.app',
-        name: 'Visitante',
-        picture: null,
-        role: 'ALUMNO',
+  const handleCredentialResponse = async (credential: string) => {
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/auth/google-one-tap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential }),
       });
-    }, 1500);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.error || `Error del servidor (${res.status})`);
+      }
+      const data = await res.json();
+      onLogin({
+        email: data.email,
+        name: data.name,
+        picture: data.picture || null,
+        role: data.role || 'ALUMNO',
+      });
+    } catch (err: any) {
+      setAuthError(err.message || 'Error de autenticación');
+      setIsAuthenticating(false);
+    }
   };
 
-  const handleGoogleLogin = useGoogleLogin({
-    onSuccess: async (tokenResponse) => {
-      setIsAuthenticating(true);
-      setAuthError(null);
-      try {
-        const res = await fetch('/api/auth/google-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accessToken: tokenResponse.access_token }),
+  useEffect(() => {
+    const checkGis = setInterval(() => {
+      if (typeof google !== 'undefined' && google.accounts) {
+        google.accounts.id.initialize({
+          client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+          callback: (response: any) => {
+            if (response.credential) {
+              handleCredentialResponse(response.credential);
+            }
+          },
+          cancel_on_tap_outside: false,
         });
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => null);
-          throw new Error(errorData?.error || `Error del servidor (${res.status})`);
-        }
-        const data = await res.json();
-        onLogin({
-          email: data.email,
-          name: data.name,
-          picture: data.picture || null,
-          role: data.role || 'ALUMNO',
-        });
-      } catch (err: any) {
-        setRetryCount((c) => c + 1);
-        if (retryCount >= 1) {
-          tryDemoFallback();
-        } else {
-          setAuthError(err.message || 'Error de autenticación');
-          setIsAuthenticating(false);
-        }
+        setGisReady(true);
+        clearInterval(checkGis);
       }
-    },
-    onError: () => {
-      setAuthError('Error al iniciar sesión con Google. Verifica que las ventanas emergentes estén permitidas.');
-      setIsAuthenticating(false);
-    },
-    flow: 'implicit',
-  });
+    }, 200);
+    return () => clearInterval(checkGis);
+  }, []);
+
+  const handleGoogleLogin = () => {
+    if (!gisReady) {
+      setAuthError('Google Identity Services no disponible. Recarga la página.');
+      return;
+    }
+    setIsAuthenticating(true);
+    setAuthError(null);
+    google.accounts.id.prompt((notification: any) => {
+      if (notification.isNotDisplayed()) {
+        setAuthError('No hay sesión de Google activa en este dispositivo.');
+        setIsAuthenticating(false);
+      }
+      if (notification.isSkippedMoment() || notification.isDismissedMoment()) {
+        setIsAuthenticating(false);
+      }
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

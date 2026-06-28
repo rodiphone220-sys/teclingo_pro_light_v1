@@ -48,6 +48,46 @@ router.post('/google-login', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/google-one-tap', async (req: Request, res: Response) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({ error: 'Credencial requerida' });
+    }
+
+    oauth2Client.setCredentials({});
+    const ticket = await oauth2Client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      return res.status(400).json({ error: 'No se pudo obtener el email del token' });
+    }
+
+    const email = payload.email;
+    const name = payload.name || email?.split('@')[0] || 'User';
+
+    const { isNew } = await checkOrCreateUser(email, name);
+    await registerLog(email, 'LOGIN');
+
+    let role: string = 'ALUMNO';
+    if (email.endsWith('@directivo.teclingo')) role = 'DIRECTOR';
+    else if (email.endsWith('@docente.teclingo')) role = 'DOCENTE';
+
+    res.json({
+      email,
+      name,
+      picture: payload.picture || null,
+      role,
+      isNew,
+    });
+  } catch (error: any) {
+    console.error('[Auth Route] google-one-tap error:', error);
+    res.status(401).json({ error: error.message || 'Error al autenticar con Google' });
+  }
+});
+
 router.post('/logout', async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
