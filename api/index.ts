@@ -92,8 +92,18 @@ export default async function handler(req: any, res: any) {
 
       if (!email) return res.status(400).json({ error: "No se pudo obtener el email" });
 
-      const { isNew } = await checkOrCreateUser(email, name);
-      await registerLog(email, "LOGIN");
+      let isNew = false;
+      try {
+        const result = await checkOrCreateUser(email, name);
+        isNew = result.isNew;
+      } catch (sheetsErr: any) {
+        console.warn("[Vercel Auth] Sheets no disponible, login continúa:", sheetsErr.message);
+      }
+      try {
+        await registerLog(email, "LOGIN");
+      } catch (sheetsErr: any) {
+        console.warn("[Vercel Auth] No se pudo registrar log en Sheets:", sheetsErr.message);
+      }
 
       let role = "ALUMNO";
       if (email.endsWith("@directivo.teclingo")) role = "DIRECTOR";
@@ -101,13 +111,14 @@ export default async function handler(req: any, res: any) {
 
       return res.status(200).json({ email, name, picture: userInfo.data.picture, role, isNew });
     } catch (error: any) {
+      const isAuthError = error.message?.includes("Token") || error.message?.includes("credential");
       console.error("[Vercel Auth] google-login error:", {
         message: error.message,
         status: error?.response?.status,
         data: error?.response?.data,
         stack: error.stack?.split("\n").slice(0, 3).join("\n") || error.stack,
       });
-      return res.status(401).json({ error: error.message || "Error de autenticación" });
+      return res.status(isAuthError ? 401 : 500).json({ error: error.message || "Error de autenticación" });
     }
   }
 
@@ -135,8 +146,18 @@ export default async function handler(req: any, res: any) {
       const email = payload.email;
       const name = payload.name || email?.split("@")[0] || "User";
 
-      const { isNew } = await checkOrCreateUser(email, name);
-      await registerLog(email, "LOGIN");
+      let isNew = false;
+      try {
+        const result = await checkOrCreateUser(email, name);
+        isNew = result.isNew;
+      } catch (sheetsErr: any) {
+        console.warn("[Vercel Auth] Sheets no disponible, login continúa:", sheetsErr.message);
+      }
+      try {
+        await registerLog(email, "LOGIN");
+      } catch (sheetsErr: any) {
+        console.warn("[Vercel Auth] No se pudo registrar log en Sheets:", sheetsErr.message);
+      }
 
       let role = "ALUMNO";
       if (email.endsWith("@directivo.teclingo")) role = "DIRECTOR";
@@ -144,11 +165,12 @@ export default async function handler(req: any, res: any) {
 
       return res.status(200).json({ email, name, picture: payload.picture, role, isNew });
     } catch (error: any) {
+      const isAuthError = error.message?.includes("Token") || error.message?.includes("credential") || error.message?.includes("audience");
       console.error("[Vercel Auth] google-one-tap error:", {
         message: error.message,
         stack: error.stack?.split("\n").slice(0, 3).join("\n") || error.stack,
       });
-      return res.status(401).json({ error: error.message || "Error de autenticación" });
+      return res.status(isAuthError ? 401 : 500).json({ error: error.message || "Error de autenticación" });
     }
   }
 

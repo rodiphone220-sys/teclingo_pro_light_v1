@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { google } from 'googleapis';
-import { checkOrCreateUser, registerLog } from '../services/googleService';
+import { checkOrCreateUser, registerLog } from '../services/googleService.ts';
 
 const router = Router();
 
