@@ -160,21 +160,26 @@ export async function checkOrCreateUser(
     const sheets = accessToken ? getSheetsWithToken(accessToken) : getSheets();
     const now = new Date().toISOString();
 
+    const h = SHEET_HEADERS.USERS;
+    const COL_EMAIL = h.indexOf('email');
+    const COL_ULTIMO_LOGIN = h.indexOf('último_login');
+
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `USERS!A:E`,
+      range: `USERS!A:${String.fromCharCode(64 + h.length)}`,
     });
 
     const rows = res.data.values || [];
     const existingRowIndex = rows.findIndex(
-      (row) => row[2]?.toString().toLowerCase() === email.toLowerCase(),
+      (row) => row[COL_EMAIL]?.toString().toLowerCase() === email.toLowerCase(),
     );
 
     if (existingRowIndex >= 1) {
+      const rangeLabel = String.fromCharCode(64 + COL_ULTIMO_LOGIN + 1);
       const rowNum = existingRowIndex + 1;
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
-        range: `USERS!E${rowNum}`,
+        range: `USERS!${rangeLabel}${rowNum}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [[now]] },
       });
@@ -182,13 +187,19 @@ export async function checkOrCreateUser(
     }
 
     const nextId = rows.length;
+    const newRow = h.map((col) => {
+      if (col === 'id') return nextId;
+      if (col === 'nombre') return name;
+      if (col === 'email') return email;
+      if (col === 'fecha_registro') return now;
+      if (col === 'último_login') return now;
+      return '';
+    });
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
       range: 'USERS',
       valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[nextId, name, email, now, now]],
-      },
+      requestBody: { values: [newRow] },
     });
 
     sendWelcomeEmail(email, name).catch(() => {});
@@ -209,20 +220,25 @@ export async function registerLog(
     const sheets = accessToken ? getSheetsWithToken(accessToken) : getSheets();
     const now = new Date().toISOString();
 
+    const h = SHEET_HEADERS.LOGS;
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: 'LOGS!A:A',
     });
 
     const nextId = (res.data.values || []).length;
-
+    const newRow = h.map((col) => {
+      if (col === 'id_log') return nextId;
+      if (col === 'email') return email;
+      if (col === 'evento') return action;
+      if (col === 'timestamp') return now;
+      return '';
+    });
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
       range: 'LOGS',
       valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[nextId, email, action, now]],
-      },
+      requestBody: { values: [newRow] },
     });
   } catch (error) {
     console.error('[GoogleService] registerLog error:', error);
@@ -242,20 +258,28 @@ export async function saveGrade(
     const sheets = accessToken ? getSheetsWithToken(accessToken) : getSheets();
     const now = new Date().toISOString();
 
+    const h = SHEET_HEADERS.GRADES;
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: 'GRADES!A:A',
     });
 
     const nextId = (res.data.values || []).length;
-
+    const newRow = h.map((col) => {
+      if (col === 'id_nota') return nextId;
+      if (col === 'email') return email;
+      if (col === 'modulo') return modulo;
+      if (col === 'herramienta') return herramienta;
+      if (col === 'calificacion') return calificacion;
+      if (col === 'tokens_usados') return tokensUsados;
+      if (col === 'timestamp') return now;
+      return '';
+    });
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
       range: 'GRADES',
       valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[nextId, email, modulo, herramienta, calificacion, tokensUsados, now]],
-      },
+      requestBody: { values: [newRow] },
     });
   } catch (error) {
     console.error('[GoogleService] saveGrade error:', error);

@@ -12,15 +12,17 @@ export default async function handler(req: Request, res: Response) {
     return res.status(405).json({ error: 'Método no permitido' });
   }
 
-  const { code, redirectUri } = req.body;
+  const { code } = req.body;
   if (!code) {
     return res.status(400).json({ error: 'Falta el código de autorización' });
   }
 
   try {
+    const redirectUri = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
+
     const { tokens } = await oauth2Client.getToken({
       code,
-      redirect_uri: redirectUri || 'postmessage',
+      redirect_uri: redirectUri,
     });
 
     const idToken = tokens.id_token;
@@ -40,18 +42,21 @@ export default async function handler(req: Request, res: Response) {
 
     const email = payload.email;
     const name = payload.name || email.split("@")[0] || "User";
-    const userAccessToken = tokens.access_token;
+
+    if (!tokens.access_token) {
+      throw new Error('Google no devolvió access_token. Verifica que el scope spreadsheets esté autorizado y que access_type=offline esté presente.');
+    }
 
     let isNew = false;
     try {
-      const result = await checkOrCreateUser(email, name, userAccessToken);
+      const result = await checkOrCreateUser(email, name, tokens.access_token);
       isNew = result.isNew;
     } catch (sheetsErr: any) {
       console.warn("[Vercel Dedicated Auth] Sheets no disponible, login continúa:", sheetsErr.message);
     }
 
     try {
-      await registerLog(email, "LOGIN", userAccessToken);
+      await registerLog(email, "LOGIN", tokens.access_token);
     } catch (sheetsErr: any) {
       console.warn("[Vercel Dedicated Auth] No se pudo registrar log en Sheets:", sheetsErr.message);
     }
