@@ -9,7 +9,16 @@ import {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || "MISSING_API_KEY" });
 
-const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID);
+function getOAuth2Client() {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return null;
+  }
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    "postmessage",
+  );
+}
 
 initializeSpreadsheet().catch((err) =>
   console.warn('[Vercel] initializeSpreadsheet falló:', (err as Error).message),
@@ -31,7 +40,26 @@ function readBody(req: any): Promise<any> {
 }
 
 export default async function handler(req: any, res: any) {
+  const origin = req.headers.origin || req.headers?.Origin || "";
+  const allowedOrigins = [
+    "https://teclingo-pro.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+  ];
+  const isAllowed = allowedOrigins.includes(origin) || origin.endsWith(".vercel.app");
+  if (isAllowed) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
   res.setHeader("Content-Type", "application/json");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
   if (req.method === "GET" && req.url === "/api/health") {
     return res.status(200).json({ status: "ok" });
@@ -47,6 +75,12 @@ export default async function handler(req: any, res: any) {
   if (req.url === "/api/auth/google-login") {
     const { accessToken } = data;
     if (!accessToken) return res.status(400).json({ error: "accessToken requerido" });
+
+    const oauth2Client = getOAuth2Client();
+    if (!oauth2Client) {
+      console.error("[Vercel Auth] GOOGLE_CLIENT_ID o GOOGLE_CLIENT_SECRET no configurados");
+      return res.status(500).json({ error: "Google OAuth no está configurado en el servidor" });
+    }
 
     try {
       oauth2Client.setCredentials({ access_token: accessToken });
@@ -67,7 +101,12 @@ export default async function handler(req: any, res: any) {
 
       return res.status(200).json({ email, name, picture: userInfo.data.picture, role, isNew });
     } catch (error: any) {
-      console.error("[Vercel Auth] google-login error:", error);
+      console.error("[Vercel Auth] google-login error:", {
+        message: error.message,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        stack: error.stack?.split("\n").slice(0, 3).join("\n") || error.stack,
+      });
       return res.status(401).json({ error: error.message || "Error de autenticación" });
     }
   }

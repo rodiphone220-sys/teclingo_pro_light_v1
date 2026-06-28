@@ -32,6 +32,20 @@ export function AuthPortal({ onLogin }: AuthPortalProps) {
   const [password, setPassword] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+
+  const tryDemoFallback = () => {
+    setAuthError('No se pudo conectar con Google. Entrando en modo demo...');
+    setTimeout(() => {
+      setIsAuthenticating(false);
+      onLogin({
+        email: 'visitante@teclingo.app',
+        name: 'Visitante',
+        picture: null,
+        role: 'ALUMNO',
+      });
+    }, 1500);
+  };
 
   const handleGoogleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
@@ -43,7 +57,10 @@ export function AuthPortal({ onLogin }: AuthPortalProps) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ accessToken: tokenResponse.access_token }),
         });
-        if (!res.ok) throw new Error('Error al autenticar con el servidor');
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => null);
+          throw new Error(errorData?.error || `Error del servidor (${res.status})`);
+        }
         const data = await res.json();
         onLogin({
           email: data.email,
@@ -52,12 +69,18 @@ export function AuthPortal({ onLogin }: AuthPortalProps) {
           role: data.role || 'ALUMNO',
         });
       } catch (err: any) {
-        setAuthError(err.message || 'Error de autenticación');
-        setIsAuthenticating(false);
+        setRetryCount((c) => c + 1);
+        if (retryCount >= 1) {
+          tryDemoFallback();
+        } else {
+          setAuthError(err.message || 'Error de autenticación');
+          setIsAuthenticating(false);
+        }
       }
     },
     onError: () => {
-      setAuthError('Error al iniciar sesión con Google');
+      setAuthError('Error al iniciar sesión con Google. Verifica que las ventanas emergentes estén permitidas.');
+      setIsAuthenticating(false);
     },
     flow: 'implicit',
   });
