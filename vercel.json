@@ -3,7 +3,6 @@
   "outputDirectory": "dist",
   "functions": {
     "api/auth/google-one-tap.ts": {
-      "nodejsVersion": 18,
       "includeFiles": "server/**/*"
     }
   },

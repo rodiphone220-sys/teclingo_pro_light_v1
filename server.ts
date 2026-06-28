@@ -11,7 +11,7 @@ import cors from "cors";
 import { GRAMMAR_LIBRARY } from "./src/components/tools/grammarLibraryData";
 import authRoutes from "./server/routes/auth";
 import gradesRoutes from "./server/routes/grades";
-import { initializeSpreadsheet } from "./api/services/googleService.ts";
+import { initializeSpreadsheet } from "./api/auth/googleService.ts";
 
 dotenv.config();
 

@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
-// CORRECCIÓN CRÍTICA: Se quita la extensión '.ts' para que Vercel pueda compilar y mapear el build
-import { checkOrCreateUser, registerLog } from '../services/googleService';
+
+// ⚠️ AJUSTA ESTA RUTA según la ubicación real de tu googleService.ts
+import { checkOrCreateUser, registerLog } from './googleService'; 
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -52,32 +53,29 @@ export default async function handler(req: Request, res: Response) {
     const email = payload.email;
     const name = payload.name || email.split("@")[0] || "User";
 
-    // 5. Validar que tengamos access_token para operar Google Sheets
-    if (!tokens.access_token) {
-      throw new Error('Google autenticó la identidad, pero no devolvió el "access_token" necesario para Sheets. Asegúrate de incluir access_type: "offline" y prompt: "consent" en el frontend.');
-    }
-
-    // 6. Operaciones con la base de datos de Google Sheets (Encapsuladas de forma segura)
+    // 5. Operaciones con la base de datos de Google Sheets
+    // 🚨 CORRECCIÓN: No pasamos el access_token del usuario para que googleService 
+    // utilice la Service Account (JWT) y tenga permisos de Editor en la DB central.
     let isNew = false;
     try {
-      const result = await checkOrCreateUser(email, name, tokens.access_token);
+      const result = await checkOrCreateUser(email, name); 
       isNew = result.isNew;
     } catch (sheetsErr: any) {
       console.warn("[OAuth Debug] Falló checkOrCreateUser en Sheets, pero el login continúa:", sheetsErr.message);
     }
 
     try {
-      await registerLog(email, "LOGIN", tokens.access_token);
+      await registerLog(email, "LOGIN");
     } catch (sheetsErr: any) {
       console.warn("[OAuth Debug] Falló el registro de log en Sheets:", sheetsErr.message);
     }
 
-    // 7. Enrutamiento de Roles de Teclingo Pro
+    // 6. Enrutamiento de Roles de Teclingo Pro
     let role = "ALUMNO";
     if (email.endsWith("@directivo.teclingo")) role = "DIRECTOR";
     else if (email.endsWith("@docente.teclingo")) role = "DOCENTE";
 
-    // 8. Respuesta exitosa (200 OK)
+    // 7. Respuesta exitosa (200 OK)
     return res.status(200).json({ 
       success: true,
       email, 
@@ -90,10 +88,8 @@ export default async function handler(req: Request, res: Response) {
   } catch (error: any) {
     console.error("Error crítico en interceptor One Tap:", error);
     
-    // Captura los detalles crudos que Google devuelve en caso de rechazo
     const googleRawError = error.response?.data || null;
 
-    // Retorna el error 500 inyectando telemetría directa al navegador
     return res.status(500).json({
       success: false,
       error: error.message || "Error interno encapsulado en el servidor",
