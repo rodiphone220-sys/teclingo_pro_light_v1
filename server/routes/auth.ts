@@ -83,8 +83,12 @@ router.post('/google-one-tap', async (req: Request, res: Response) => {
       isNew,
     });
   } catch (error: any) {
-    console.error('[Auth Route] google-one-tap error:', error);
-    res.status(401).json({ error: error.message || 'Error al autenticar con Google' });
+    console.error("Error crítico en One Tap:", error);
+    return res.status(200).json({
+      success: false,
+      error: error.message || "Error interno encapsulado",
+      stack: error.stack
+    });
   }
 });
 

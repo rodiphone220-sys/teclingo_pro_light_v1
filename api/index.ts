@@ -165,12 +165,12 @@ export default async function handler(req: any, res: any) {
 
       return res.status(200).json({ email, name, picture: payload.picture, role, isNew });
     } catch (error: any) {
-      const isAuthError = error.message?.includes("Token") || error.message?.includes("credential") || error.message?.includes("audience");
-      console.error("[Vercel Auth] google-one-tap error:", {
-        message: error.message,
-        stack: error.stack?.split("\n").slice(0, 3).join("\n") || error.stack,
+      console.error("Error crítico en One Tap:", error);
+      return res.status(200).json({
+        success: false,
+        error: error.message || "Error interno encapsulado",
+        stack: error.stack
       });
-      return res.status(isAuthError ? 401 : 500).json({ error: error.message || "Error de autenticación" });
     }
   }
 
