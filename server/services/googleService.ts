@@ -1,4 +1,5 @@
 import { google, sheets_v4, gmail_v1 } from 'googleapis';
+import { OAuth2Client } from 'google-auth-library';
 import { readFileSync, existsSync } from 'fs';
 import dotenv from 'dotenv';
 
@@ -23,6 +24,9 @@ function fixPrivateKey(key: string): string {
 function loadServiceAccountCredentials(): { client_email: string; private_key: string } {
   const envJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   const filePath = process.env.GOOGLE_SERVICE_ACCOUNT_PATH;
+
+  console.log("[GoogleService] ¿Existe GOOGLE_SERVICE_ACCOUNT_JSON?", !!envJson);
+  console.log("[GoogleService] ¿Existe GOOGLE_SERVICE_ACCOUNT_PATH?", !!filePath);
 
   if (envJson) {
     try {
@@ -72,6 +76,15 @@ function getGmail(): gmail_v1.Gmail {
     gmailClient = google.gmail({ version: 'v1', auth: getAuthClient() });
   }
   return gmailClient;
+}
+
+function getSheetsWithToken(accessToken: string): sheets_v4.Sheets {
+  const auth = new OAuth2Client(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+  );
+  auth.setCredentials({ access_token: accessToken });
+  return google.sheets({ version: 'v4', auth });
 }
 
 export async function initializeSpreadsheet(): Promise<void> {
@@ -141,9 +154,10 @@ export async function initializeSpreadsheet(): Promise<void> {
 export async function checkOrCreateUser(
   email: string,
   name: string,
+  accessToken?: string,
 ): Promise<{ isNew: boolean }> {
   try {
-    const sheets = getSheets();
+    const sheets = accessToken ? getSheetsWithToken(accessToken) : getSheets();
     const now = new Date().toISOString();
 
     const res = await sheets.spreadsheets.values.get({
@@ -189,9 +203,10 @@ export async function checkOrCreateUser(
 export async function registerLog(
   email: string,
   action: 'LOGIN' | 'LOGOUT',
+  accessToken?: string,
 ): Promise<void> {
   try {
-    const sheets = getSheets();
+    const sheets = accessToken ? getSheetsWithToken(accessToken) : getSheets();
     const now = new Date().toISOString();
 
     const res = await sheets.spreadsheets.values.get({
@@ -221,9 +236,10 @@ export async function saveGrade(
   herramienta: string,
   calificacion: number,
   tokensUsados: number,
+  accessToken?: string,
 ): Promise<void> {
   try {
-    const sheets = getSheets();
+    const sheets = accessToken ? getSheetsWithToken(accessToken) : getSheets();
     const now = new Date().toISOString();
 
     const res = await sheets.spreadsheets.values.get({

@@ -31,16 +31,45 @@ export function AuthPortal({ onLogin }: AuthPortalProps) {
   const [password, setPassword] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [gisReady, setGisReady] = useState(false);
 
-  const handleCredentialResponse = async (credential: string) => {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const errorParam = params.get('error');
+    const state = params.get('state');
+
+    if (code || errorParam) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    if (errorParam) {
+      setAuthError('Acceso denegado por Google.');
+      return;
+    }
+
+    if (code) {
+      const savedState = sessionStorage.getItem('google_oauth_state');
+      if (state && state !== savedState) {
+        setAuthError('Error de seguridad: state inválido.');
+        sessionStorage.removeItem('google_oauth_state');
+        return;
+      }
+      sessionStorage.removeItem('google_oauth_state');
+      handleGoogleCallback(code);
+    }
+  }, []);
+
+  const handleGoogleCallback = async (code: string) => {
     setIsAuthenticating(true);
     setAuthError(null);
     try {
       const res = await fetch('/api/auth/google-one-tap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential }),
+        body: JSON.stringify({
+          code,
+          redirectUri: window.location.origin,
+        }),
       });
       if (!res.ok) {
         const errorData = await res.json().catch(() => null);
@@ -59,44 +88,24 @@ export function AuthPortal({ onLogin }: AuthPortalProps) {
     }
   };
 
-  useEffect(() => {
-    const checkGis = setInterval(() => {
-      if (typeof google !== 'undefined' && google.accounts) {
-        console.log("=== DETECTIVE DE ENTORNOS ===");
-        console.log("¿Qué ID lee Vite?:", import.meta.env.VITE_GOOGLE_CLIENT_ID);
-        console.log("Llaves que detecta Vite en total:", Object.keys(import.meta.env));
-        google.accounts.id.initialize({
-          client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
-          callback: (response: any) => {
-            if (response.credential) {
-              handleCredentialResponse(response.credential);
-            }
-          },
-          cancel_on_tap_outside: false,
-        });
-        setGisReady(true);
-        clearInterval(checkGis);
-      }
-    }, 200);
-    return () => clearInterval(checkGis);
-  }, []);
-
   const handleGoogleLogin = () => {
-    if (!gisReady) {
-      setAuthError('Google Identity Services no disponible. Recarga la página.');
-      return;
-    }
     setIsAuthenticating(true);
     setAuthError(null);
-    google.accounts.id.prompt((notification: any) => {
-      if (notification.isNotDisplayed()) {
-        setAuthError('No hay sesión de Google activa en este dispositivo.');
-        setIsAuthenticating(false);
-      }
-      if (notification.isSkippedMoment() || notification.isDismissedMoment()) {
-        setIsAuthenticating(false);
-      }
+
+    const state = crypto.randomUUID?.() || Math.random().toString(36).substring(2, 15);
+    sessionStorage.setItem('google_oauth_state', state);
+
+    const params = new URLSearchParams({
+      client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+      redirect_uri: window.location.origin,
+      response_type: 'code',
+      scope: 'openid email profile https://www.googleapis.com/auth/spreadsheets',
+      access_type: 'offline',
+      prompt: 'consent',
+      state,
     });
+
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
