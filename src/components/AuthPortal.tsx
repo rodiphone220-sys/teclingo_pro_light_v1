@@ -62,6 +62,9 @@ export function AuthPortal({ onLogin }: AuthPortalProps) {
   useEffect(() => {
     const checkGis = setInterval(() => {
       if (typeof google !== 'undefined' && google.accounts) {
+        console.log("=== DETECTIVE DE ENTORNOS ===");
+        console.log("¿Qué ID lee Vite?:", import.meta.env.VITE_GOOGLE_CLIENT_ID);
+        console.log("Llaves que detecta Vite en total:", Object.keys(import.meta.env));
         google.accounts.id.initialize({
           client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
           callback: (response: any) => {
