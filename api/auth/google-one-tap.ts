@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 
-// ⚠️ AJUSTA ESTA RUTA según la ubicación real de tu googleService.ts
-import { checkOrCreateUser, registerLog } from './googleService'; 
+// ✅ CORREGIDO: Import desde la misma carpeta
+import { checkOrCreateUser, registerLog } from './googleService';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -10,14 +10,12 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
 const oauth2Client = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
 
 export default async function handler(req: Request, res: Response) {
-  // 1. Validar método HTTP
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método no permitido' });
   }
 
   const { code, redirectUri } = req.body;
 
-  // 2. Validación estricta de parámetros de entrada
   if (!code) {
     return res.status(400).json({ error: 'Falta el código de autorización (code) en el req.body' });
   }
@@ -28,7 +26,6 @@ export default async function handler(req: Request, res: Response) {
   }
 
   try {
-    // 3. Intercambiar el código de autorización por los tokens
     const { tokens } = await oauth2Client.getToken({
       code,
       redirect_uri: redirectUri,
@@ -39,7 +36,6 @@ export default async function handler(req: Request, res: Response) {
       return res.status(400).json({ error: 'No se recibió el ID Token desde Google.' });
     }
 
-    // 4. Verificar la identidad del usuario con el ID Token
     const ticket = await oauth2Client.verifyIdToken({
       idToken,
       audience: GOOGLE_CLIENT_ID,
@@ -53,9 +49,6 @@ export default async function handler(req: Request, res: Response) {
     const email = payload.email;
     const name = payload.name || email.split("@")[0] || "User";
 
-    // 5. Operaciones con la base de datos de Google Sheets
-    // 🚨 CORRECCIÓN: No pasamos el access_token del usuario para que googleService 
-    // utilice la Service Account (JWT) y tenga permisos de Editor en la DB central.
     let isNew = false;
     try {
       const result = await checkOrCreateUser(email, name); 
@@ -70,12 +63,10 @@ export default async function handler(req: Request, res: Response) {
       console.warn("[OAuth Debug] Falló el registro de log en Sheets:", sheetsErr.message);
     }
 
-    // 6. Enrutamiento de Roles de Teclingo Pro
     let role = "ALUMNO";
     if (email.endsWith("@directivo.teclingo")) role = "DIRECTOR";
     else if (email.endsWith("@docente.teclingo")) role = "DOCENTE";
 
-    // 7. Respuesta exitosa (200 OK)
     return res.status(200).json({ 
       success: true,
       email, 
