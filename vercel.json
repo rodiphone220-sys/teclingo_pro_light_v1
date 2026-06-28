@@ -1,6 +1,12 @@
 {
   "buildCommand": "vite build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/auth/google-one-tap.ts": {
+      "nodejsVersion": 18,
+      "includeFiles": "server/**/*"
+    }
+  },
   "rewrites": [
     { "source": "/api/auth/google-one-tap", "destination": "/api/auth/google-one-tap.ts" },
     { "source": "/api/(.*)", "destination": "/api/index.ts" },
