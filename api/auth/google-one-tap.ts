@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
-import { checkOrCreateUser, registerLog } from '../../server/services/googleService.ts';
+// CORRECCIÓN CRÍTICA: Se quita la extensión '.ts' para que Vercel pueda compilar y mapear el build
+import { checkOrCreateUser, registerLog } from '../../server/services/googleService';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
