@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { saveGrade } from '../services/googleService.ts';
+import { saveGrade } from '../../api/services/googleService.ts';
 
 const router = Router();
 
